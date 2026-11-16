@@ -285,28 +285,31 @@ def buscar_info_remota(timeout_ms=3500):
 
 def _preservar_dados_locais():
     """Faz backup em memoria de preferencias *_settings.json e arquivo SP antes da atualizacao."""
-    snip_dir = os.path.join(EXT_ROOT, "lib", "Snippets")
     backups = {}
-    if not os.path.isdir(snip_dir):
+    if not os.path.isdir(EXT_ROOT):
         return backups
-    for fn in os.listdir(snip_dir):
-        if fn.endswith("_settings.json") or fn == "_AutoBIM_PeDireito_SP.txt":
-            fp = os.path.join(snip_dir, fn)
-            try:
-                with open(fp, "rb") as f:
-                    backups[fn] = f.read()
-            except Exception:
-                pass
+    for dirpath, dirnames, filenames in os.walk(EXT_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__", "_cache_rfa", "Output")]
+        for fn in filenames:
+            if fn.endswith("_settings.json") or fn == "_AutoBIM_PeDireito_SP.txt":
+                fp = os.path.join(dirpath, fn)
+                rel = os.path.relpath(fp, EXT_ROOT)
+                try:
+                    with open(fp, "rb") as f:
+                        backups[rel] = f.read()
+                except Exception:
+                    pass
     return backups
 
 
 def _restaurar_dados_locais(backups):
-    snip_dir = os.path.join(EXT_ROOT, "lib", "Snippets")
-    if not os.path.isdir(snip_dir):
-        os.makedirs(snip_dir)
-    for fn, raw in backups.items():
+    for rel, raw in backups.items():
         try:
-            with open(os.path.join(snip_dir, fn), "wb") as f:
+            dest = os.path.join(EXT_ROOT, rel)
+            d_parent = os.path.dirname(dest)
+            if not os.path.isdir(d_parent):
+                os.makedirs(d_parent)
+            with open(dest, "wb") as f:
                 f.write(raw)
         except Exception:
             pass

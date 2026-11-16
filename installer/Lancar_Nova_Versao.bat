@@ -23,6 +23,15 @@ $vj.release_date = (Get-Date).ToString('yyyy-MM-dd'); ^
 $vj.notes = $notas; ^
 $jsonOut = $vj | ConvertTo-Json -Depth 4; ^
 [IO.File]::WriteAllText($vjPath, $jsonOut + \"`r`n\", [System.Text.UTF8Encoding]::new($false)); ^
+$issPath = Join-Path $root 'installer\AutoBIM_Setup.iss'; ^
+if (Test-Path $issPath) { ^
+    $iss = Get-Content $issPath -Raw -Encoding UTF8; ^
+    $iss = $iss -replace '#define MyAppVersion \".*?\"', \"#define MyAppVersion `\"$nova`\"\"; ^
+    [IO.File]::WriteAllText($issPath, $iss, [System.Text.UTF8Encoding]::new($false)); ^
+}; ^
+foreach ($ic in @('G:\Arquivos de Programas\Inno Setup 7\ISCC.exe', 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 7\ISCC.exe')) { ^
+    if (Test-Path $ic) { Write-Host '[*] Gerando EXE local...' -ForegroundColor White; & $ic $issPath | Out-Null; break } ^
+}; ^
 & git add -A; ^
 & git commit -m \"Release v$nova - $notas\"; ^
 & git tag -a \"v$nova\" -m \"AutoBIM v$nova - $notas\"; ^

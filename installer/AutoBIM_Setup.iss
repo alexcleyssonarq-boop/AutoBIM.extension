@@ -29,7 +29,7 @@ UninstallDisplayName={#MyAppName}
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Files]
-Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.git,__pycache__\*,*\__pycache__\*,lib\Snippets\_cache_rfa\*,lib\Snippets\*_settings.json,lib\Snippets\_AutoBIM_PeDireito_SP.txt,installer\Output\*,*.exe,*.zip,*.pyc"
+Source: "..\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".git\*,.git,.github\*,.github,__pycache__\*,*\__pycache__\*,_cache_rfa\*,*_cache_rfa\*,*_settings.json,_AutoBIM_PeDireito_SP.txt,installer\Output\*,*.exe,*.zip,*.pyc"
 
 [Code]
 var

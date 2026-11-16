@@ -1,0 +1,46 @@
+name: Build & Release AutoBIM Installer (.exe)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Sync version from tag & compile Inno Setup EXE
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart('v', 'V')
+          $issPath = "installer\AutoBIM_Setup.iss"
+          $iss = Get-Content $issPath -Raw -Encoding UTF8
+          $iss = $iss -replace '#define MyAppVersion ".*?"', "#define MyAppVersion `"$ver`""
+          [IO.File]::WriteAllText((Resolve-Path $issPath), $iss, [System.Text.UTF8Encoding]::new($false))
+
+          $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+          if (-not $iscc) {
+            foreach ($p in @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe", "$env:ProgramFiles\Inno Setup 7\ISCC.exe")) {
+              if (Test-Path $p) { $iscc = $p; break }
+            }
+          }
+          if (-not $iscc) { throw "ISCC.exe nao encontrado." }
+          & $iscc $issPath
+          if ($LASTEXITCODE -ne 0) { throw "Erro ao compilar Inno Setup." }
+
+      - name: Create GitHub Release with EXE attached
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/Output/*.exe
+          generate_release_notes: true
