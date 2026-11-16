@@ -1,0 +1,9 @@
+{
+  "no_room_bound": true, 
+  "base_cm": -2.0, 
+  "altura_m": 2.6000000000000001, 
+  "join": true, 
+  "wall_type": "OC_ACABAMENTO (E=1 cm) -  Revestimento 60x60cm  (1.0 cm)", 
+  "wt_idx": 3, 
+  "lvl_idx": 1
+}

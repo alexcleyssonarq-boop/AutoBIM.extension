@@ -1,0 +1,6 @@
+title: "Piso por\nAmbiente"
+tooltip: Cria pisos pelo contorno dos ambientes selecionados, com três opções de tratamento para portas e aberturas.
+layout:
+  - SemTratamento
+  - Soleira
+  - Continuo

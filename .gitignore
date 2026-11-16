@@ -1,0 +1,23 @@
+# Python / IronPython
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs e arquivos temporarios
+*.bak
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Dados e preferencias locais de cada usuario (nao versionar)
+lib/Snippets/__pycache__/
+lib/Snippets/_cache_rfa/
+lib/Snippets/*_settings.json
+lib/Snippets/_AutoBIM_PeDireito_SP.txt
+
+# Builds / instaladores gerados localmente
+installer/Output/
+dist/
+*.exe
+*.zip

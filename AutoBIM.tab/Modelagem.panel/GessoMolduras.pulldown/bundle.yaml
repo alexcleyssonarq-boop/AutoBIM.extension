@@ -1,0 +1,7 @@
+title: "Gesso e\nMolduras"
+tooltip: "Detalhamento automático de forros e paredes: Tabicas para forro solto, Cortineiros em janelas/portas, Sancas por ambiente e Rodameios/Boiserie."
+layout:
+  - Tabicas
+  - Cortineiros
+  - Sancas
+  - Rodameios

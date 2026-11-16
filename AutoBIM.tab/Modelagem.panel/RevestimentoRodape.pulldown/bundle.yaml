@@ -1,0 +1,5 @@
+title: "Revestimento\ne Rodapé"
+tooltip: "Modela revestimentos de parede (parede fina com Join) ou rodapés por família/perfil (Embutido, Invertido, Reto, Santa Luzia) contornando os ambientes."
+layout:
+  - RevestimentoParede
+  - RodapesFamilia

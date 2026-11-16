@@ -1,0 +1,7 @@
+title:
+  pt_br: "Pé-Direito\nAutomático"
+  en_us: "Pé-Direito\nAutomático"
+tooltip:
+  pt_br: "Mede automaticamente o pé-direito livre (reto ou mín/máx inclinado) até o Forro ou face inferior do Madeiramento (caibros/terças) / Telhado, gravando 'PD = 2,80m' ou 'PD = 2,60 / 3,40m' pronto para a Tag de Ambiente."
+  en_us: "Automatically measures room ceiling or exposed rafter/roof height (flat or min/max sloped) and writes it to Room parameters for Room Tags."
+author: AutoBIM

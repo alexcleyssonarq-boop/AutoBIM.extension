@@ -1,0 +1,5 @@
+title: "Unir\nGeometria"
+tooltip: Une e corrige a ordem de corte automaticamente entre Estrutura, Pisos, Paredes e Forros (na vista ativa ou por seleção).
+layout:
+  - UnirVista
+  - UnirSelecionados

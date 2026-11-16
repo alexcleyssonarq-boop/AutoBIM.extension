@@ -1,0 +1,7 @@
+title:
+  pt_br: "Sobre e\nAtualizar"
+  en_us: "Sobre e\nAtualizar"
+tooltip:
+  pt_br: "Verifica a versão instalada e baixa atualizações do AutoBIM direto do GitHub em 1 clique (preservando suas preferências locais)."
+  en_us: "Checks installed version and updates AutoBIM directly from GitHub in 1 click."
+author: AutoBIM

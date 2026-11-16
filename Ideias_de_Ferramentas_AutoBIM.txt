@@ -1,0 +1,198 @@
+===========================================================================
+              AUTOBIM (pyRevit) — ROTEIRO E IDEIAS DE FERRAMENTAS
+===========================================================================
+
+FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (40 comandos):
+---------------------------------------------------------------------------
+[Painel: Cotas Automáticas]
+  1. Cotar por Ambiente
+     - Cota largura e comprimento internos próximos às paredes laterais.
+  2. Cotar Paredes Selecionadas
+     - Cota em cadeia (espessuras + vãos) e Cota Total pelo lado externo
+       da edificação (a 0,40 m e 0,80 m).
+  3. Cotar Parede e Aberturas
+     - Cota longitudinalmente bonecas, vãos luz/eixos de portas e janelas
+       e o comprimento total da parede.
+  4. Cota Rápida por Linha
+     - Cota em cadeia todas as paredes cruzadas entre dois cliques na
+       planta (com snap desativado e marcador alvo circular temporário).
+  5. Menu "Cotas em Corte" (Pulldown com 3 modos)
+     - Cota Rápida no Corte: cadeia automática (vertical ou horizontal) por
+       2 cliques com snap desligado cruzando base da laje, piso acabado,
+       face inferior do forro, paredes/vigas cortadas e cobertura sólida
+       (ignorando vidraças inclinadas e esquadrias).
+     - Pé-Direito por Ambiente: cota Piso acabado → Forro → Laje superior
+       automaticamente para cada Room cortado, deslocada do centro.
+     - Cotas de Esquadrias: cota Peitoril, Altura e Boneca superior até
+       Forro/Laje (mais largura opcional em elevação frontal).
+
+[Painel: Modelagem]
+  5. Menu "Piso por Ambiente" (Pulldown com 3 modos)
+     - Piso: sem tratamento (para na face da parede)
+     - Piso: soleira separada (permite escolher outro tipo/material para
+       a soleira e preenche o vão bruto completo da porta)
+     - Piso: contínuo (une múltiplos ambientes selecionados e os vãos
+       brutos das portas em um único piso contínuo sem emendas)
+  6. Menu "Unir Geometria" (Auto-Join — Pulldown com 2 modos)
+     - Unir: Na Vista Atual e Unir: Selecionados (com prioridade de corte)
+  7. Altura de Paredes em Lote
+     - Desconta espessura de laje/viga acima, vincula ao nível superior
+       ou define altura fixa desconectada
+  8. Paginação de Piso
+     - Alinha os eixos da hachura de modelo do piso ao canto clicado
+  9. Soleiras e Peitoris Automáticos
+     - Gera peitoris de janelas (com pingadeira/boneca) e soleiras de portas
+  10. Forros por Ambiente (Em Lote + Tabica)
+     - Cria forros para os ambientes da vista ou selecionados, com opção
+       de recuo perimetral (tabica/sanca)
+  11. Menu "Revestimento e Rodapé" (Pulldown com 2 modos)
+     - Revestimento e Rodapé (Parede): cria paredes finas de revestimento ou
+       rodapé contornando os ambientes e une às paredes hospedeiras.
+     - Rodapés por Família (Perfis): contorna os ambientes com famílias
+       CurveBased do projeto (OC_RODAPÉ* Embutido, Invertido, Reto,
+       Santa Luzia) ou perfis paramétricos AutoBIM, alinhando ao piso
+       acabado, descontando portas/janelas baixas, chanfrando cantos a 45°
+       e aplicando corte com vazio na parede (AddInstanceVoidCut).
+  12. Menu "Gesso e Molduras" (Pulldown com 4 modos)
+     - Tabicas (Forro Solto): mede a folga real entre a borda do forro e a
+       parede para gerar Tabica L/Z adaptativa do AutoBIM ou aplicar famílias
+       OC_TABICA* do projeto (com corte por vazio automático).
+     - Cortineiros: modela testeiras suspensas + recuo automático do contorno
+       do forro existente (SketchEditScope) ou família AutoBIM L/U sobre
+       janelas e portas-balcão com sobra lateral.
+     - Sancas por Ambiente: Fechada, Aberta p/ LED (parede fina + forro
+       rebaixado), ou perfis paramétricos / famílias do projeto.
+     - Rodameios / Boiserie: aplica famílias OC_RODAMEIO* / Boiserie,
+       perfis não-retos AutoBIM (Chanfrado, Boleado, Friso Duplo) ou parede
+       fina com JoinGeometry, descontando portas e janelas na altura.
+  13. Menu "Estrutura de Cobertura" (Pulldown com 8 modos)
+     - Madeiramento: Ripas, Caibros e Terças (3D com recorte espigão/rincão)
+     - Madeiramento: Vidraça Inclinada (Sloped Glazing)
+     - Madeiramento: Tesouras (Rainha, Simples, Howe, Fink — 1 e 2 águas)
+     - Pontaletes (Madeira ou Metálico C/U/Metalon + Terças + Berço/Sapata)
+     - Estrutura Metálica: Vigas e Terças (3D em Aço Galvanizado)
+     - Estrutura Metálica: Vidraça Inclinada (Sloped Glazing)
+     - Estrutura Metálica: Treliças (Triangular, Paralela no Caimento e Reta
+       Horizontal — Warren, Warren c/ Montantes, Pratt, Howe e Fink, com
+       perfis independentes para Banzos e Montantes/Diagonais)
+     - Lista de Corte e Quantitativo da Cobertura (Tabela Revit + CSV c/ FFD)
+
+[Painel: Documentação]
+  14. Quadro de Acabamentos e Legenda Numerada
+     - Varre Pisos (○), Paredes/Revestimentos/Pinturas (△), Forros (□) e
+       Rodapés por Ambiente, grava códigos sequenciais em ROOM_FINISH_* e
+       gera/atualiza Legenda Gráfica 1:1 (ViewDrafting) e Tabela (ViewSchedule).
+  15. Menu "Renumerar Elementos" (Pulldown com 2 modos)
+     - Renumerar por Clique: numeração sequencial ao vivo por clique no
+       elemento ou na Tag (Marca de Tipo, Marca da Instância ou Ambos),
+       ignorando Tipo já numerado quando desejado.
+     - Renumerar Automático em Lote (Tabela): ordena Portas, Janelas,
+       Ambientes, Vagas, Mobiliário e Pilares em até 4 níveis (Largura,
+       Altura, Descrição, Comentários, Peitoril, Nível, Ambiente, Posição)
+       ou importa diretamente os critérios/filtros de uma Tabela (Schedule)
+       existente, com grade de pré-visualização antes de aplicar.
+  16. Tag Automática Inteligente em Lote
+     - Aplica tags em lote na vista ativa (Planta, Corte ou Elevação) para
+       múltiplas categorias com deslocamento anti-sobreposição em espiral
+       e opção de linha de chamada (leader).
+  17. Pé-Direito Automático por Ambiente
+     - Mede automaticamente o pé-direito livre até o Forro (reto ou inclinado)
+       ou face inferior do Madeiramento / Telhado / Laje, gravando em
+       AutoBIM_PD_Texto ('PD = 2,80m' ou 'PD = 2,60 / 3,40m') e parâmetro extra.
+  18. Vistas 2D / 3D / Elevações Internas por Ambiente
+     - Gera plantas baixas recortadas (CropBox), vistas 3D isométricas
+       (Section Box) e as 4 elevações internas (Norte/Sul/Leste/Oeste)
+       dos ambientes selecionados, com escala e modelos de vista.
+  19. Centralizar Room Tags (Tags e Pontos de Referência)
+     - Calcula o centro interno seguro de cada ambiente (inclusive formatos
+       em L/U) e reposiciona pontos das Rooms e suas Tags.
+  20. Menu "Cotas de Nível" (Pulldown com 2 modos)
+     - Cotas de Nível: em Planta — posiciona automaticamente abaixo da
+       Room Tag real da vista (ou com deslocamento fixo do centro),
+       priorizando o piso acabado superior sobre a laje.
+     - Cotas de Nível: em Corte — detecta e cota o piso acabado sobre a
+       laje estrutural (ignorando camadas cobertas/estruturais), forros e
+       telhados.
+  21. Pranchas Auto (Duplicar Completa + Auto-Montagem)
+     - Duplica folha completa com carimbo, tabelas, legendas, anotações 2D
+       e vistas; ou distribui múltiplas vistas em novas folhas em grade.
+
+
+===========================================================================
+        LISTA DE SUGESTÕES PARA PRÓXIMOS DESENVOLVIMENTOS
+===========================================================================
+
+1. PAINEL: MODELAGEM (Base concluída + futuras melhorias)
+---------------------------------------------------------------------------
+[x] Unir/Cortar Geometria Automático (Auto-Join)
+[x] Anexar / Ajustar Altura de Paredes em Lote
+[x] Paginação Rápida de Piso (Alinhar Hachura)
+[x] Soleiras e Peitoris Automáticos (Portas e Janelas)
+[x] Forros Automáticos por Ambiente (Em Lote + Tabica)
+[x] Revestimento e Rodapé de Parede por Ambiente
+[x] Estrutura de Cobertura (Madeiramento, Vidraça, Tesouras, Pontaletes,
+    Estrutura Metálica 3D/Vidraça e Treliças Metálicas)
+[ ] Calhas, Rufos e Tabeiras Automáticos no Beiral / Platibanda (Em estudo / futuro)
+[x] Cortineiros, Sancas, Tabicas e Rodameios por Ambiente + Rodapés por Família (IMPLEMENTADO)
+[x] Lista de Corte e Quantitativo da Estrutura de Cobertura (Tabela Revit + CSV) (IMPLEMENTADO)
+
+
+2. PAINEL: DOCUMENTAÇÃO (Anotação, Tags e Pranchas)
+---------------------------------------------------------------------------
+[x] Quadro de Acabamentos Automático + Legenda Numerada na Tag (IMPLEMENTADO)
+    - Varre automaticamente Piso, Parede/Revestimento e Teto/Forro dentro
+      de cada Room (lendo pisos, paredes de revestimento e forros modelados).
+    - Numera cada acabamento único sequencialmente (1, 2, 3...) e grava os
+      códigos diretamente nos parâmetros nativos da Room ligados aos símbolos da
+      Tag de Ambiente (○ = Acabamento do piso [ROOM_FINISH_FLOOR], △ = Acabamento
+      da parede [ROOM_FINISH_WALL], □ = Acabamento do forro [ROOM_FINISH_CEILING]
+      e opcionalmente Acabamento base [ROOM_FINISH_BASE] para rodapé).
+    - Gera automaticamente uma Tabela (ViewSchedule) ou Legenda/Vista de
+      Desenho organizada com os códigos ○ / △ / □ e a descrição do material/
+      tipo correspondente, pronta para ir para a prancha.
+
+[x] Renumeração Rápida por Clique (Portas, Janelas, Ambientes, Vagas) (IMPLEMENTADO)
+    - Escolhe o prefixo/número inicial (ex.: P01, J01, 01) e numera os
+      elementos na sequência em que você vai clicando na planta,
+      atualizando o parâmetro Mark / Number na hora.
+
+[x] Criar Vistas 2D / 3D / Elevações Internas por Ambiente (IMPLEMENTADO)
+    - A partir da seleção de ambientes, gera plantas recortadas (CropBox),
+      vistas 3D isométricas (Section Box) ou as 4 elevações internas de
+      cada ambiente (ótimo para detalhamento de áreas molhadas e
+      marcenaria).
+
+[x] Centralizar Tags de Ambiente (Rooms) (IMPLEMENTADO)
+    - Reposiciona automaticamente todas as Room Tags que saíram do centro
+      do ambiente (e recoloca os pontos de referência das Rooms).
+
+[x] Tag Automática Inteligente em Lote (Esquadrias / Ambientes / Estrutura) (IMPLEMENTADO)
+    - Aplica tags alinhadas em lote na vista ativa sem sobreposição.
+
+[x] Pé-Direito Automático por Ambiente para Tags (IMPLEMENTADO)
+    - Mede automaticamente o pé-direito livre até o Forro (reto ou inclinado)
+      ou até a face inferior do Madeiramento (caibros/terças) / Telhado quando
+      não houver forro, gravando 'PD = 2,80m' ou 'PD = 2,60 / 3,40m' nos
+      parâmetros do Ambiente (AutoBIM_PD_Texto ou parâmetro da Tag).
+
+[x] Cotas de Nível (Spot Elevation) Automáticas (Plantas e Cortes) (IMPLEMENTADO)
+
+[x] Duplicar Pranchas (Sheets) Completa + Auto-Montagem de Pranchas (IMPLEMENTADO)
+    - Duplica folha copiando carimbo, tabelas, legendas, textos e vistas,
+      ou distribui múltiplas vistas em novas pranchas automaticamente.
+
+
+3. PAINEL: AUDITORIA E VISUALIZAÇÃO (Qualidade de Vida)
+---------------------------------------------------------------------------
+[ ] Colorir Elementos por Parâmetro / Tipo (Filtro Visual) + Resetar Cores
+    - Colore temporariamente na vista ativa elementos por tipo, espessura,
+      nível ou material para conferência visual rápida do modelo.
+
+[ ] Detector de Elementos Duplicados ou Sobrepostos
+    - Varre pisos, paredes ou famílias sobrepostas no mesmo lugar e
+      destaca ou isola na vista para limpeza.
+
+[ ] Ajustar Elevação Padrão de Pontos Elétricos / Hidráulicos
+    - Padroniza em lote a altura (Elevation from Level) de tomadas
+      baixas/médias/altas, interruptores e pontos hidráulicos selecionados.
+===========================================================================

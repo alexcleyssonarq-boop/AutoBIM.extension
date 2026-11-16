@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "release_date": "2026-11-16",
+  "repo_owner": "alexcleyssonarq-boop",
+  "repo_name": "AutoBIM.extension",
+  "branch": "main",
+  "notes": "Versão inicial pública (40 comandos): Cotas Automáticas, Modelagem Arquitetônica e de Cobertura, Lista de Corte c/ Tabela Revit + CSV, Documentação, Quadro de Acabamentos e Pé-Direito Automático."
+}

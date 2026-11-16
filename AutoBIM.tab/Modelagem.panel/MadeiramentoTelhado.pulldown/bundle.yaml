@@ -1,0 +1,12 @@
+title:
+  pt_br: "Estrutura de\nCobertura"
+  en_us: "Estrutura de\nCobertura"
+layout:
+  - TramaTelhado
+  - VidracaInclinada
+  - TesourasPontaletes
+  - Pontaletes
+  - EstruturaMetalica3D
+  - EstruturaMetalicaVidraca
+  - TrelicasMetalicas
+  - QuantitativoCobertura

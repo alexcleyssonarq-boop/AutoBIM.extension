@@ -1,0 +1,5 @@
+title: "Cotas de\nNível"
+tooltip: "Aplica Cotas de Nível (Spot Elevation) automaticamente em Plantas (abaixo das Tags de Ambiente) ou em Cortes/Elevações (detectando o piso acabado sobre a laje)."
+layout:
+  - CotasNivelPlanta
+  - CotasNivelCorte

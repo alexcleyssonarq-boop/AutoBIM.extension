@@ -1,0 +1,7 @@
+title:
+  pt_br: "Lista de Corte e\nQuantitativo"
+  en_us: "Lista de Corte e\nQuantitativo"
+tooltip:
+  pt_br: "Extrai o comprimento real 3D e seção de toda a estrutura de cobertura (Madeiramento, Metálica, Treliças, Pontaletes, Vidraça e Calhas), gera Tabela nativa no Revit e planilha CSV com otimização de barras comerciais."
+  en_us: "Generates native Revit Cut List schedule and CSV export with commercial bar optimization for roof framing."
+author: AutoBIM

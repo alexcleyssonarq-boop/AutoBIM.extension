@@ -1,0 +1,10 @@
+layout:
+  - PisoPorAmbiente
+  - ForrosPorAmbiente
+  - RevestimentoRodape
+  - GessoMolduras
+  - SoleirasPeitoris
+  - PaginacaoPiso
+  - AlturaParedes
+  - MadeiramentoTelhado
+  - AutoJoin

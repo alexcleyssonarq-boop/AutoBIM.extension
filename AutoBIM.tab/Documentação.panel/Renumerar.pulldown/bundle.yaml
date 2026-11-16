@@ -1,0 +1,5 @@
+title: "Renumerar\nElementos"
+tooltip: Renumera portas, janelas, ambientes e outros elementos por clique sequencial ou automaticamente em lote (ordenado por largura, altura, descrição ou tabela).
+layout:
+  - RenumerarClique
+  - RenumerarLote

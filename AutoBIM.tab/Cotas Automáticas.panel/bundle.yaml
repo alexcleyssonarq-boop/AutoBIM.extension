@@ -1,0 +1,7 @@
+title: Cotas Automáticas
+layout:
+  - CotarAmbiente
+  - CotarParedes
+  - CotarAberturas
+  - CotaPorLinha
+  - CotasCorte

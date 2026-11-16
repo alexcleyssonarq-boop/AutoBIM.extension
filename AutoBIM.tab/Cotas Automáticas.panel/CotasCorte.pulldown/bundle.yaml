@@ -1,0 +1,6 @@
+title: "Cotas em\nCorte"
+tooltip: "Cotas automáticas para Cortes e Elevações: Cota Rápida por Linha, Pé-Direito por Ambiente e Cotas de Esquadrias."
+layout:
+  - CotarCorteLinha
+  - CotarPeDireito
+  - CotarEsquadriasCorte

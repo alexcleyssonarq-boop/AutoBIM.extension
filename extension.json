@@ -1,0 +1,14 @@
+{
+  "builtin": "False",
+  "default_enabled": "True",
+  "type": "extension",
+  "rocket_mode_compatible": "True",
+  "name": "AutoBIM",
+  "description": "Plugin pyRevit completo para produtividade no Revit: Cotas Automáticas, Modelagem Arquitetônica e Cobertura (Madeiramento, Metálica, Treliças, Lista de Corte), Acabamentos, Tags e Pé-Direito Automático.",
+  "author": "Alex Cleysson",
+  "author_profile": "https://github.com/alexcleyssonarq-boop",
+  "url": "https://github.com/alexcleyssonarq-boop/AutoBIM.extension.git",
+  "website": "https://github.com/alexcleyssonarq-boop/AutoBIM.extension",
+  "image": "",
+  "dependencies": []
+}
