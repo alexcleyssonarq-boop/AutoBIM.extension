@@ -2,7 +2,7 @@
               AUTOBIM (pyRevit) — ROTEIRO E IDEIAS DE FERRAMENTAS
 ===========================================================================
 
-FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (40 comandos):
+FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
 ---------------------------------------------------------------------------
 [Painel: Cotas Automáticas]
   1. Cotar por Ambiente
@@ -49,20 +49,20 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (40 comandos):
      - Revestimento e Rodapé (Parede): cria paredes finas de revestimento ou
        rodapé contornando os ambientes e une às paredes hospedeiras.
      - Rodapés por Família (Perfis): contorna os ambientes com famílias
-       CurveBased do projeto (OC_RODAPÉ* Embutido, Invertido, Reto,
-       Santa Luzia) ou perfis paramétricos AutoBIM, alinhando ao piso
+       CurveBased do projeto (Embutido, Invertido, Reto, sobreposto)
+       ou perfis paramétricos AutoBIM, alinhando ao piso
        acabado, descontando portas/janelas baixas, chanfrando cantos a 45°
        e aplicando corte com vazio na parede (AddInstanceVoidCut).
   12. Menu "Gesso e Molduras" (Pulldown com 4 modos)
      - Tabicas (Forro Solto): mede a folga real entre a borda do forro e a
        parede para gerar Tabica L/Z adaptativa do AutoBIM ou aplicar famílias
-       OC_TABICA* do projeto (com corte por vazio automático).
+       de tabica do projeto (com corte por vazio automático).
      - Cortineiros: modela testeiras suspensas + recuo automático do contorno
        do forro existente (SketchEditScope) ou família AutoBIM L/U sobre
        janelas e portas-balcão com sobra lateral.
      - Sancas por Ambiente: Fechada, Aberta p/ LED (parede fina + forro
        rebaixado), ou perfis paramétricos / famílias do projeto.
-     - Rodameios / Boiserie: aplica famílias OC_RODAMEIO* / Boiserie,
+     - Rodameios / Boiserie: aplica famílias lineares do projeto,
        perfis não-retos AutoBIM (Chanfrado, Boleado, Friso Duplo) ou parede
        fina com JoinGeometry, descontando portas e janelas na altura.
   13. Menu "Estrutura de Cobertura" (Pulldown com 8 modos)
