@@ -5,10 +5,10 @@ __version__ = "Versão 1.0"
 __doc__ = """Modela automaticamente rodapés por família baseada em linha contornando os ambientes selecionados.
 
 Diferenciais:
-- Suporta famílias carregadas no projeto (OC_RODAPÉ* Embutido, Invertido Perfil L, Reto, Santa Luzia Neo 30/43 etc.) e perfis paramétricos gerados pelo AutoBIM (Boleado, Chanfrado, Friso Duplo).
+- Suporta famílias carregadas no projeto (Embutido, Invertido Perfil L, Reto, Santa Luzia Neo 30/43 etc.) e perfis paramétricos gerados pelo AutoBIM (Boleado, Chanfrado, Friso Duplo).
 - Alinha automaticamente à cota superior do piso acabado do ambiente.
 - Desconta Portas e Janelas que alcançam a altura do rodapé.
-- Aplica esquadria de canto 45° (OC_Ângulo CA/CB) e corte reto 0° junto a portas/aberturas.
+- Aplica esquadria de canto 45° e corte reto 0° junto a portas/aberturas.
 - Executa corte com vazio na parede hospedeira (AddInstanceVoidCut) para rodapés embutidos e invertidos."""
 
 import os

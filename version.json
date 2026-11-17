@@ -1,8 +1,8 @@
 {
-    "version":  "1.0.1",
+    "version":  "1.0.2",
     "release_date":  "2026-11-17",
     "repo_owner":  "alexcleyssonarq-boop",
     "repo_name":  "AutoBIM.extension",
     "branch":  "main",
-    "notes":  "Evolução das Cotas em Corte (v1.0.1): nova Cota Automática no Corte em 1 clique na vertical, novo Cotar Seleção no Corte (alturas e total fora do desenho sem sobrepor cotas), Pé-Direito em vãos sem Room e sob telhados/madeiramento sem forro, e melhorias na Cota Rápida no Corte."
+    "notes":  "Busca em tempo real nos seletores de famílias, tipos, materiais, modelos de vista, carimbos, tags, tabelas e estilos (v1.0.2) + limpeza visual nas descrições e caixas de seleção de Gesso e Rodapés."
 }

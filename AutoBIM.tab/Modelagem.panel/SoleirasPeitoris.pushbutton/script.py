@@ -20,6 +20,11 @@ clr.AddReference("PresentationFramework")
 from System.Collections.Generic import List
 from Autodesk.Revit.DB import *
 from pyrevit import forms, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -120,15 +125,15 @@ class SoleirasPeitorisWindow(forms.WPFWindow):
                      u"Todas as Janelas/Portas visíveis na vista ativa"):
             self._cb_escopo.Items.Add(item)
 
-        for n in nomes_pisos:
-            self._cb_floor.Items.Add(n)
-
         self._cb_escopo.SelectedIndex = int(prefs.get("escopo_idx", 0))
         self._ck_janelas.IsChecked = bool(prefs.get("janelas", True))
         self._ck_portas.IsChecked  = bool(prefs.get("portas", False))
 
         ultimo_piso = prefs.get("floor", "")
-        self._cb_floor.SelectedIndex = nomes_pisos.index(ultimo_piso) if ultimo_piso in nomes_pisos else 0
+        idx_fl = nomes_pisos.index(ultimo_piso) if ultimo_piso in nomes_pisos else 0
+        self._sc_floor = uis.SearchableCombo.attach_auto(
+            self._cb_floor, nomes_pisos, placeholder=u"Pesquisar tipo de piso / pedra...", initial_index=idx_fl
+        )
 
         self._tb_orelha.Text = str(prefs.get("orelha_cm", "2"))
         self._tb_ext.Text    = str(prefs.get("ext_cm", "2"))
@@ -153,11 +158,16 @@ class SoleirasPeitorisWindow(forms.WPFWindow):
             forms.alert("Verifique os valores numéricos em centímetros.")
             return
 
+        floor_idx = self._sc_floor.selected_index()
+        if floor_idx < 0:
+            forms.alert("Selecione o tipo de piso / pedra.")
+            return
+
         self.resultado = {
             "escopo_idx": self._cb_escopo.SelectedIndex,
             "janelas":    bool(self._ck_janelas.IsChecked),
             "portas":     bool(self._ck_portas.IsChecked),
-            "floor_idx":  self._cb_floor.SelectedIndex,
+            "floor_idx":  floor_idx,
             "orelha_cm":  orelha_cm,
             "ext_cm":     ext_cm,
             "int_cm":     int_cm,

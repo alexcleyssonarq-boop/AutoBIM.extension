@@ -71,6 +71,11 @@ from Autodesk.Revit.DB.Architecture import Room
 from Autodesk.Revit.DB.Structure import StructuralType
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from pyrevit import forms
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 FT = 1.0 / 0.3048
 CM_TO_FT = 0.01 * FT
@@ -354,20 +359,29 @@ def _coletar_curve_based_symbols(doc, prefer_keywords=None):
     return out
 
 
-def _selecionar_combo_por_palavras(cb, items_labels, saved_label=None, keywords=None):
+def _melhor_indice_por_palavras(items_labels, saved_label=None, keywords=None):
     if not items_labels:
-        return
+        return -1
     if saved_label and saved_label in items_labels:
-        cb.SelectedIndex = items_labels.index(saved_label)
-        return
+        return items_labels.index(saved_label)
     if keywords:
         for kw in keywords:
             kl = kw.lower()
             for i, lbl in enumerate(items_labels):
                 if kl in lbl.lower():
-                    cb.SelectedIndex = i
-                    return
-    cb.SelectedIndex = 0
+                    return i
+    return 0
+
+
+def _selecionar_combo_por_palavras(cb, items_labels, saved_label=None, keywords=None):
+    idx = _melhor_indice_por_palavras(items_labels, saved_label=saved_label, keywords=keywords)
+    if idx >= 0:
+        cb.SelectedIndex = idx
+
+
+def _anexar_busca_combo_palavras(cb, items_labels, saved_label=None, keywords=None, placeholder=u"Pesquisar..."):
+    idx = max(0, _melhor_indice_por_palavras(items_labels, saved_label=saved_label, keywords=keywords))
+    return uis.SearchableCombo.attach_auto(cb, items_labels, placeholder=placeholder, initial_index=idx)
 
 
 def _set_param_double(el, names, val):
@@ -446,14 +460,16 @@ def _coletar_materiais(doc):
 
 def _popular_combo_materiais(cb_mat, mats_data, saved_name=None):
     if cb_mat is None:
-        return
-    cb_mat.Items.Add(u"Automático (detectar no projeto ou criar padrão)")
+        return None
+    itens = [u"Automático (detectar no projeto ou criar padrão)"]
     sel_idx = 0
     for idx, (nm, _) in enumerate(mats_data):
-        cb_mat.Items.Add(nm)
+        itens.append(nm)
         if saved_name and nm == saved_name:
             sel_idx = idx + 1
-    cb_mat.SelectedIndex = sel_idx
+    return uis.SearchableCombo.attach_auto(
+        cb_mat, itens, placeholder=u"Pesquisar material...", initial_index=sel_idx
+    )
 
 
 def _resolver_material_padrao(doc, spec_key):
@@ -499,12 +515,14 @@ def _resolver_material_padrao(doc, spec_key):
         return mats[0][1].Id if mats else ElementId.InvalidElementId
 
 
-def _resolver_material_escolha(doc, cb_mat, mats_data, spec_key):
+def _resolver_material_escolha(doc, cb_or_sc_mat, mats_data, spec_key):
     """Retorna (mat_id, user_explicit) dentro de Transaction ativa."""
-    if cb_mat is not None and cb_mat.SelectedIndex > 0:
-        idx = cb_mat.SelectedIndex - 1
-        if 0 <= idx < len(mats_data):
-            return mats_data[idx][1].Id, True
+    if cb_or_sc_mat is not None:
+        sel = cb_or_sc_mat.selected_index() if hasattr(cb_or_sc_mat, "selected_index") else cb_or_sc_mat.SelectedIndex
+        if sel > 0:
+            idx = sel - 1
+            if 0 <= idx < len(mats_data):
+                return mats_data[idx][1].Id, True
     return _resolver_material_padrao(doc, spec_key), False
 
 
@@ -2776,15 +2794,15 @@ def run_tabicas(doc, uidoc, view):
 
     for op in [
         u"AutoBIM Paramétrica — Tabica Z (Perfil Z com Encaixe)",
-        u"Família carregada no projeto (OC_TABICA* / CurveBased)",
+        u"Família carregada no projeto (CurveBased)",
     ]:
         cb_modo.Items.Add(op)
     cb_modo.SelectedIndex = min(int(prefs.get("modo_v3_idx", 0)), 1)
 
-    for lbl in sym_labels:
-        cb_familia.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_familia, sym_labels, prefs.get("familia"), ["tabica"])
-    _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
+    sc_familia = _anexar_busca_combo_palavras(
+        cb_familia, sym_labels, prefs.get("familia"), ["tabica"], placeholder=u"Pesquisar família de tabica..."
+    )
+    sc_mat = _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
 
     tb_gap_min.Text = prefs.get("gap_min_v2", "0,0")
     tb_gap_max.Text = prefs.get("gap_max", "15,0")
@@ -2809,7 +2827,10 @@ def run_tabicas(doc, uidoc, view):
 
     def _on_ok(s, e):
         if cb_modo.SelectedIndex == 1 and len(syms) == 0:
-            forms.alert(u"Nenhuma família CurveBased (OC_TABICA) carregada no projeto. Use a opção AutoBIM Paramétrica ou carregue uma família.", title=u"Tabicas")
+            forms.alert(u"Nenhuma família CurveBased de Tabica carregada no projeto. Use a opção AutoBIM Paramétrica ou carregue uma família.", title=u"Tabicas")
+            return
+        if cb_modo.SelectedIndex == 1 and sc_familia.selected_index() < 0:
+            forms.alert(u"Selecione uma família carregada na lista.", title=u"Tabicas")
             return
         estado["ok"] = True
         win.Close()
@@ -2820,11 +2841,13 @@ def run_tabicas(doc, uidoc, view):
     if not estado["ok"]:
         return
 
+    fam_idx_t = sc_familia.selected_index()
+    mat_idx_t = sc_mat.selected_index() if sc_mat is not None else 0
     salvar_prefs("tabicas", {
         "escopo_idx": cb_escopo.SelectedIndex,
         "modo_v3_idx": cb_modo.SelectedIndex,
-        "familia": sym_labels[cb_familia.SelectedIndex] if cb_familia.SelectedIndex >= 0 and sym_labels else "",
-        "material": mats_data[cb_mat.SelectedIndex - 1][0] if cb_mat.SelectedIndex > 0 and (cb_mat.SelectedIndex - 1) < len(mats_data) else "",
+        "familia": sym_labels[fam_idx_t] if fam_idx_t >= 0 and sym_labels else "",
+        "material": mats_data[mat_idx_t - 1][0] if mat_idx_t > 0 and (mat_idx_t - 1) < len(mats_data) else "",
         "gap_min_v2": tb_gap_min.Text,
         "gap_max": tb_gap_max.Text,
         "gap_padrao_v3": tb_gap_padrao.Text,
@@ -2886,9 +2909,9 @@ def run_tabicas(doc, uidoc, view):
         t.SetFailureHandlingOptions(opt_f)
         t.Start()
 
-        proj_sym = syms[cb_familia.SelectedIndex] if (modo_idx == 1 and cb_familia.SelectedIndex >= 0) else None
+        proj_sym = syms[fam_idx_t] if (modo_idx == 1 and fam_idx_t >= 0) else None
         autobim_cache = {}
-        mat_id, mat_explicit = _resolver_material_escolha(doc, cb_mat, mats_data, "tabica")
+        mat_id, mat_explicit = _resolver_material_escolha(doc, sc_mat, mats_data, "tabica")
         cache_sym_mats = set()
 
         for ceil in alvos:
@@ -3326,14 +3349,13 @@ def run_cortineiros(doc, uidoc, view):
         cb_sistema.Items.Add(op)
     cb_sistema.SelectedIndex = prefs.get("sistema_idx", 0)
 
-    for lbl in wt_labels:
-        cb_wall.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_wall, wt_labels, prefs.get("wall_type"), ["oc_forro", "gesso", "st"])
-
-    for lbl in sym_labels:
-        cb_familia.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_familia, sym_labels, prefs.get("familia"), ["cortineiro", "tabica"])
-    _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
+    sc_wall = _anexar_busca_combo_palavras(
+        cb_wall, wt_labels, prefs.get("wall_type"), ["oc_forro", "gesso", "st"], placeholder=u"Pesquisar tipo de parede..."
+    )
+    sc_familia = _anexar_busca_combo_palavras(
+        cb_familia, sym_labels, prefs.get("familia"), ["cortineiro", "tabica"], placeholder=u"Pesquisar família..."
+    )
+    sc_mat = _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
 
     tb_sobra.Text = prefs.get("sobra", "20")
     tb_prof.Text = prefs.get("prof", "15")
@@ -3361,6 +3383,12 @@ def run_cortineiros(doc, uidoc, view):
         if cb_sistema.SelectedIndex == 3 and len(syms) == 0:
             forms.alert(u"Nenhuma família CurveBased carregada.", title=u"Cortineiros")
             return
+        if cb_sistema.SelectedIndex == 3 and sc_familia.selected_index() < 0:
+            forms.alert(u"Selecione uma família carregada.", title=u"Cortineiros")
+            return
+        if cb_sistema.SelectedIndex == 0 and wall_types and sc_wall.selected_index() < 0:
+            forms.alert(u"Selecione um tipo de parede.", title=u"Cortineiros")
+            return
         estado["ok"] = True
         win.Close()
 
@@ -3370,12 +3398,15 @@ def run_cortineiros(doc, uidoc, view):
     if not estado["ok"]:
         return
 
+    wt_idx_c  = sc_wall.selected_index()
+    fam_idx_c = sc_familia.selected_index()
+    mat_idx_c = sc_mat.selected_index() if sc_mat is not None else 0
     salvar_prefs("cortineiros", {
         "escopo_idx": cb_escopo.SelectedIndex,
         "sistema_idx": cb_sistema.SelectedIndex,
-        "wall_type": wt_labels[cb_wall.SelectedIndex] if cb_wall.SelectedIndex >= 0 and wt_labels else "",
-        "familia": sym_labels[cb_familia.SelectedIndex] if cb_familia.SelectedIndex >= 0 and sym_labels else "",
-        "material": mats_data[cb_mat.SelectedIndex - 1][0] if cb_mat.SelectedIndex > 0 and (cb_mat.SelectedIndex - 1) < len(mats_data) else "",
+        "wall_type": wt_labels[wt_idx_c] if wt_idx_c >= 0 and wt_labels else "",
+        "familia": sym_labels[fam_idx_c] if fam_idx_c >= 0 and sym_labels else "",
+        "material": mats_data[mat_idx_c - 1][0] if mat_idx_c > 0 and (mat_idx_c - 1) < len(mats_data) else "",
         "sobra": tb_sobra.Text,
         "prof": tb_prof.Text,
         "alt": tb_alt.Text,
@@ -3409,9 +3440,9 @@ def run_cortineiros(doc, uidoc, view):
     ceils = list(FilteredElementCollector(doc).OfClass(Ceiling).WhereElementIsNotElementType())
     ceil_types_all = _coletar_ceiling_types(doc) if fechar_topo else []
 
-    wt = wall_types[cb_wall.SelectedIndex] if (cb_wall.SelectedIndex >= 0 and wall_types) else None
+    wt = wall_types[wt_idx_c] if (wt_idx_c >= 0 and wall_types) else None
     wt_w = getattr(wt, "Width", 0.04) if wt else 0.04
-    proj_sym = syms[cb_familia.SelectedIndex] if (sis_idx == 3 and cb_familia.SelectedIndex >= 0) else None
+    proj_sym = syms[fam_idx_c] if (sis_idx == 3 and fam_idx_c >= 0) else None
 
     # Preparar lista de geometrias de cortineiro
     itens = []
@@ -3524,7 +3555,7 @@ def run_cortineiros(doc, uidoc, view):
         elif sis_idx == 3:
             sym_auto = proj_sym
 
-        mat_id, mat_explicit = _resolver_material_escolha(doc, cb_mat, mats_data, "cortineiro")
+        mat_id, mat_explicit = _resolver_material_escolha(doc, sc_mat, mats_data, "cortineiro")
         cache_sym_mats = set()
         cache_flip = {}
         for it in itens:
@@ -3886,18 +3917,16 @@ def run_sancas(doc, uidoc, view):
         def_tipo = 0
     cb_tipo.SelectedIndex = def_tipo
 
-    for lbl in wt_labels:
-        cb_wall.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_wall, wt_labels, prefs.get("wall_type"), ["oc_forro", "gesso", "st"])
-
-    for lbl in ct_labels:
-        cb_ceil.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_ceil, ct_labels, prefs.get("ceil_type"), ["gesso", "forro", "tabica"])
-
-    for lbl in sym_labels:
-        cb_fam.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_fam, sym_labels, prefs.get("familia"), ["sanca", "rodameio"])
-    _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
+    sc_wall = _anexar_busca_combo_palavras(
+        cb_wall, wt_labels, prefs.get("wall_type"), ["oc_forro", "gesso", "st"], placeholder=u"Pesquisar tipo de parede..."
+    )
+    sc_ceil = _anexar_busca_combo_palavras(
+        cb_ceil, ct_labels, prefs.get("ceil_type"), ["gesso", "forro", "tabica"], placeholder=u"Pesquisar tipo de forro..."
+    )
+    sc_fam = _anexar_busca_combo_palavras(
+        cb_fam, sym_labels, prefs.get("familia"), ["sanca", "rodameio"], placeholder=u"Pesquisar família..."
+    )
+    sc_mat = _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
 
     tb_larg.Text = prefs.get("larg", "35")
     tb_alt.Text = prefs.get("alt", "15")
@@ -3928,6 +3957,9 @@ def run_sancas(doc, uidoc, view):
         if cb_tipo.SelectedIndex == 7 and len(syms) == 0:
             forms.alert(u"Nenhuma família CurveBased carregada.", title=u"Sancas")
             return
+        if cb_tipo.SelectedIndex == 7 and sc_fam.selected_index() < 0:
+            forms.alert(u"Selecione uma família carregada.", title=u"Sancas")
+            return
         estado["ok"] = True
         win.Close()
 
@@ -3937,13 +3969,17 @@ def run_sancas(doc, uidoc, view):
     if not estado["ok"]:
         return
 
+    wt_idx_s   = sc_wall.selected_index()
+    ct_idx_s   = sc_ceil.selected_index()
+    fam_idx_s  = sc_fam.selected_index()
+    mat_idx_s  = sc_mat.selected_index() if sc_mat is not None else 0
     salvar_prefs("sancas", {
         "escopo_idx": cb_escopo.SelectedIndex,
         "tipo_idx": cb_tipo.SelectedIndex,
-        "wall_type": wt_labels[cb_wall.SelectedIndex] if cb_wall.SelectedIndex >= 0 and wt_labels else "",
-        "ceil_type": ct_labels[cb_ceil.SelectedIndex] if cb_ceil.SelectedIndex >= 0 and ct_labels else "",
-        "familia": sym_labels[cb_fam.SelectedIndex] if cb_fam.SelectedIndex >= 0 and sym_labels else "",
-        "material": mats_data[cb_mat.SelectedIndex - 1][0] if cb_mat.SelectedIndex > 0 and (cb_mat.SelectedIndex - 1) < len(mats_data) else "",
+        "wall_type": wt_labels[wt_idx_s] if wt_idx_s >= 0 and wt_labels else "",
+        "ceil_type": ct_labels[ct_idx_s] if ct_idx_s >= 0 and ct_labels else "",
+        "familia": sym_labels[fam_idx_s] if fam_idx_s >= 0 and sym_labels else "",
+        "material": mats_data[mat_idx_s - 1][0] if mat_idx_s > 0 and (mat_idx_s - 1) < len(mats_data) else "",
         "larg": tb_larg.Text,
         "alt": tb_alt.Text,
         "cota": tb_cota.Text,
@@ -3972,10 +4008,10 @@ def run_sancas(doc, uidoc, view):
     invert = bool(chk_inv.IsChecked)
     tipo_idx = cb_tipo.SelectedIndex
 
-    wt = wall_types[cb_wall.SelectedIndex] if (cb_wall.SelectedIndex >= 0 and wall_types) else None
+    wt = wall_types[wt_idx_s] if (wt_idx_s >= 0 and wall_types) else None
     wt_w = getattr(wt, "Width", 0.04) if wt else 0.04
-    ct = ceil_types[cb_ceil.SelectedIndex] if (cb_ceil.SelectedIndex >= 0 and ceil_types) else None
-    proj_sym = syms[cb_fam.SelectedIndex] if (tipo_idx == 7 and cb_fam.SelectedIndex >= 0) else None
+    ct = ceil_types[ct_idx_s] if (ct_idx_s >= 0 and ceil_types) else None
+    proj_sym = syms[fam_idx_s] if (tipo_idx == 7 and fam_idx_s >= 0) else None
     ceils_all = list(FilteredElementCollector(doc).OfClass(Ceiling).WhereElementIsNotElementType())
 
     ct_thick = 0.04
@@ -4083,7 +4119,7 @@ def run_sancas(doc, uidoc, view):
                 out_walls.append(nw)
             return out_walls
 
-        mat_id, mat_explicit = _resolver_material_escolha(doc, cb_mat, mats_data, "sanca")
+        mat_id, mat_explicit = _resolver_material_escolha(doc, sc_mat, mats_data, "sanca")
         cache_sym_mats = set()
         cache_flip = {}
         for rit in room_itens:
@@ -4308,7 +4344,7 @@ XAML_RODAMEIOS = u"""
         <TextBlock Text="Sistema / Perfil de Rodameio" FontWeight="SemiBold"/>
         <ComboBox x:Name="cb_sistema" Margin="0,4,0,10" Height="27"/>
 
-        <TextBlock Text="Família carregada (OC_RODAMEIO* / OC_Boiserie*)" FontWeight="SemiBold"/>
+        <TextBlock Text="Família carregada (Rodameio / Boiserie)" FontWeight="SemiBold"/>
         <ComboBox x:Name="cb_familia" Margin="0,4,0,10" Height="27"/>
 
         <TextBlock Text="Tipo de Parede Fina (quando Parede Fina Nativa)" FontWeight="SemiBold"/>
@@ -4363,12 +4399,12 @@ XAML_RODAMEIOS = u"""
                 <ColumnDefinition Width="10"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Rotação perfil (famílias OC):" VerticalAlignment="Center" FontWeight="SemiBold"/>
+            <TextBlock Grid.Column="0" Text="Rotação do perfil (família carregada):" VerticalAlignment="Center" FontWeight="SemiBold"/>
             <ComboBox x:Name="cb_rot_perfil" Grid.Column="2" Height="26"/>
         </Grid>
 
         <CheckBox x:Name="chk_inv_perfil" IsChecked="False" Margin="0,0,0,4"
-                  Content="Inverter perfil (parâmetro interno da família OC)"/>
+                  Content="Inverter perfil (parâmetro interno da família)"/>
         <CheckBox x:Name="chk_inv" IsChecked="False" Margin="0,0,0,14"
                   Content="Inverter lado (dentro / fora)"/>
 
@@ -4559,7 +4595,7 @@ def run_rodameios(doc, uidoc, view):
     cb_escopo.SelectedIndex = prefs.get("escopo_idx", 1 if uidoc.Selection.GetElementIds().Count > 0 else 0)
 
     for op in [
-        u"Família carregada no projeto (OC_RODAMEIO* / OC_Boiserie*)",
+        u"Família carregada no projeto (Rodameio / Boiserie)",
         u"AutoBIM Santa Luzia — VersaLED (70 x 17 mm)",
         u"AutoBIM Santa Luzia — Ref. 466 Reto (30 x 16 mm)",
         u"AutoBIM Santa Luzia — Ref. 468 Clássico (27 x 11 mm)",
@@ -4568,14 +4604,13 @@ def run_rodameios(doc, uidoc, view):
         cb_sis.Items.Add(op)
     cb_sis.SelectedIndex = prefs.get("sis_idx", 0 if syms else 1)
 
-    for lbl in sym_labels:
-        cb_fam.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_fam, sym_labels, prefs.get("familia"), ["rodameio", "boiserie"])
-
-    for lbl in wt_labels:
-        cb_wall.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_wall, wt_labels, prefs.get("wall_type"), ["acabamento", "revest", "gesso"])
-    _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
+    sc_fam = _anexar_busca_combo_palavras(
+        cb_fam, sym_labels, prefs.get("familia"), ["rodameio", "boiserie"], placeholder=u"Pesquisar família..."
+    )
+    sc_wall = _anexar_busca_combo_palavras(
+        cb_wall, wt_labels, prefs.get("wall_type"), ["acabamento", "revest", "gesso"], placeholder=u"Pesquisar tipo de parede..."
+    )
+    sc_mat = _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
 
     for op in [
         u"Automático (corrigir perfil deitado para vertical)",
@@ -4622,7 +4657,13 @@ def run_rodameios(doc, uidoc, view):
 
     def _on_ok(s, e):
         if cb_sis.SelectedIndex == 0 and len(syms) == 0:
-            forms.alert(u"Nenhuma família OC_RODAMEIO carregada no projeto. Escolha um perfil AutoBIM ou Parede Fina.", title=u"Rodameios")
+            forms.alert(u"Nenhuma família de Rodameio carregada no projeto. Escolha um perfil AutoBIM ou Parede Fina.", title=u"Rodameios")
+            return
+        if cb_sis.SelectedIndex == 0 and sc_fam.selected_index() < 0:
+            forms.alert(u"Selecione uma família carregada.", title=u"Rodameios")
+            return
+        if cb_sis.SelectedIndex == 4 and sc_wall.selected_index() < 0:
+            forms.alert(u"Selecione um tipo de parede.", title=u"Rodameios")
             return
         estado["ok"] = True
         win.Close()
@@ -4633,12 +4674,15 @@ def run_rodameios(doc, uidoc, view):
     if not estado["ok"]:
         return
 
+    fam_idx_r  = sc_fam.selected_index()
+    wt_idx_r   = sc_wall.selected_index()
+    mat_idx_r  = sc_mat.selected_index() if sc_mat is not None else 0
     salvar_prefs("rodameios", {
         "escopo_idx": cb_escopo.SelectedIndex,
         "sis_idx": cb_sis.SelectedIndex,
-        "familia": sym_labels[cb_fam.SelectedIndex] if cb_fam.SelectedIndex >= 0 and sym_labels else "",
-        "wall_type": wt_labels[cb_wall.SelectedIndex] if cb_wall.SelectedIndex >= 0 and wt_labels else "",
-        "material": mats_data[cb_mat.SelectedIndex - 1][0] if cb_mat.SelectedIndex > 0 and (cb_mat.SelectedIndex - 1) < len(mats_data) else "",
+        "familia": sym_labels[fam_idx_r] if fam_idx_r >= 0 and sym_labels else "",
+        "wall_type": wt_labels[wt_idx_r] if wt_idx_r >= 0 and wt_labels else "",
+        "material": mats_data[mat_idx_r - 1][0] if mat_idx_r > 0 and (mat_idx_r - 1) < len(mats_data) else "",
         "rot_idx": cb_rot.SelectedIndex,
         "elev": tb_elev.Text,
         "esp": tb_esp.Text,
@@ -4675,7 +4719,7 @@ def run_rodameios(doc, uidoc, view):
         sym = None
         wt = None
         if sis_idx == 0:
-            sym = syms[cb_fam.SelectedIndex]
+            sym = syms[fam_idx_r]
         elif sis_idx in (1, 2, 3):
             kmap = {1: "SantaLuzia_VersaLED", 2: "SantaLuzia_466", 3: "SantaLuzia_468"}
             kind = kmap[sis_idx]
@@ -4688,14 +4732,14 @@ def run_rodameios(doc, uidoc, view):
             )
             sym = _obter_ou_criar_familia_autobim(doc, fam_nm, kind, {"w_ft": esp_ft, "h_ft": h_ft})
         else:
-            wt = wall_types[cb_wall.SelectedIndex]
+            wt = wall_types[wt_idx_r]
 
         rot_map = {0: None, 1: 0.0, 2: 90.0, 3: 180.0, 4: 270.0}
         sel_rot_idx = cb_rot.SelectedIndex if cb_rot.SelectedIndex >= 0 else 0
         rot_val = rot_map.get(sel_rot_idx, None) if sis_idx == 0 else None
         auto_up = (sis_idx == 0 and sel_rot_idx == 0)
         inv_p_val = bool(chk_inv_perfil.IsChecked) if sis_idx == 0 else None
-        mat_id, mat_explicit = _resolver_material_escolha(doc, cb_mat, mats_data, "rodameio")
+        mat_id, mat_explicit = _resolver_material_escolha(doc, sc_mat, mats_data, "rodameio")
 
         criados, _ = _rodar_molding_por_ambiente(
             doc, rooms,
@@ -4786,7 +4830,7 @@ XAML_RODAPES_FAM = u"""
         <CheckBox x:Name="chk_void_cut" IsChecked="True" Margin="0,0,0,4"
                   Content="Cortar parede hospedeira (AddInstanceVoidCut) para Embutido / Invertido"/>
         <CheckBox x:Name="chk_miter" IsChecked="True" Margin="0,0,0,4"
-                  Content="Aplicar 45° nos cantos (OC_Ângulo CA/CB) e 0° junto a portas/vãos"/>
+                  Content="Aplicar 45° nos cantos e 0° junto a portas/vãos"/>
         <CheckBox x:Name="chk_sep" IsChecked="True" Margin="0,0,0,4"
                   Content="Ignorar linhas de separação de ambiente"/>
         <CheckBox x:Name="chk_inv" IsChecked="False" Margin="0,0,0,14"
@@ -4835,7 +4879,7 @@ def run_rodapes_familia(doc, uidoc, view):
     cb_escopo.SelectedIndex = prefs.get("escopo_idx", 1 if uidoc.Selection.GetElementIds().Count > 0 else 0)
 
     for op in [
-        u"Família carregada no projeto (OC_RODAPÉ* — Embutido / Invertido / Santa Luzia / Reto)",
+        u"Família carregada no projeto (Embutido / Invertido / Santa Luzia / Reto)",
         u"AutoBIM Santa Luzia — Clássico 2 Frisos (493 / 505 / 547)",
         u"AutoBIM Santa Luzia — Boleado Moderno (455 / 456 / 457)",
         u"AutoBIM Santa Luzia — Reto Liso / Porcelanato (466 / Reto)",
@@ -4848,10 +4892,10 @@ def run_rodapes_familia(doc, uidoc, view):
         def_orig = 1
     cb_orig.SelectedIndex = def_orig
 
-    for lbl in sym_labels:
-        cb_fam.Items.Add(lbl)
-    _selecionar_combo_por_palavras(cb_fam, sym_labels, prefs.get("familia"), ["rodap", "santa luzia"])
-    _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
+    sc_fam = _anexar_busca_combo_palavras(
+        cb_fam, sym_labels, prefs.get("familia"), ["rodap", "santa luzia"], placeholder=u"Pesquisar família / tipo de rodapé..."
+    )
+    sc_mat = _popular_combo_materiais(cb_mat, mats_data, prefs.get("material"))
 
     tb_desloc.Text = prefs.get("desloc", "0,0")
     tb_esp.Text = prefs.get("esp", "1,6")
@@ -4888,7 +4932,10 @@ def run_rodapes_familia(doc, uidoc, view):
 
     def _on_ok(s, e):
         if cb_orig.SelectedIndex == 0 and len(syms) == 0:
-            forms.alert(u"Nenhuma família OC_RODAPÉ carregada no projeto. Selecione uma opção AutoBIM Paramétrica.", title=u"Rodapés")
+            forms.alert(u"Nenhuma família de Rodapé carregada no projeto. Selecione uma opção AutoBIM Paramétrica.", title=u"Rodapés")
+            return
+        if cb_orig.SelectedIndex == 0 and sc_fam.selected_index() < 0:
+            forms.alert(u"Selecione uma família/tipo de rodapé.", title=u"Rodapés")
             return
         estado["ok"] = True
         win.Close()
@@ -4899,11 +4946,13 @@ def run_rodapes_familia(doc, uidoc, view):
     if not estado["ok"]:
         return
 
+    fam_idx_rp = sc_fam.selected_index()
+    mat_idx_rp = sc_mat.selected_index() if sc_mat is not None else 0
     salvar_prefs("rodapes_familia", {
         "escopo_idx": cb_escopo.SelectedIndex,
         "orig_idx": cb_orig.SelectedIndex,
-        "familia": sym_labels[cb_fam.SelectedIndex] if cb_fam.SelectedIndex >= 0 and sym_labels else "",
-        "material": mats_data[cb_mat.SelectedIndex - 1][0] if cb_mat.SelectedIndex > 0 and (cb_mat.SelectedIndex - 1) < len(mats_data) else "",
+        "familia": sym_labels[fam_idx_rp] if fam_idx_rp >= 0 and sym_labels else "",
+        "material": mats_data[mat_idx_rp - 1][0] if mat_idx_rp > 0 and (mat_idx_rp - 1) < len(mats_data) else "",
         "desloc": tb_desloc.Text,
         "esp": tb_esp.Text,
         "h": tb_h.Text,
@@ -4929,7 +4978,7 @@ def run_rodapes_familia(doc, uidoc, view):
     orig_idx = cb_orig.SelectedIndex
 
     # Para Embutido / Invertido, a parte principal/vazio entra NA PAREDE!
-    fam_sel_lbl = sym_labels[cb_fam.SelectedIndex].lower() if (orig_idx == 0 and cb_fam.SelectedIndex >= 0) else ""
+    fam_sel_lbl = sym_labels[fam_idx_rp].lower() if (orig_idx == 0 and fam_idx_rp >= 0) else ""
     is_embedded = (orig_idx in (4, 5)) or ("embutido" in fam_sel_lbl or "invertido" in fam_sel_lbl)
 
     t = Transaction(doc, "AutoBIM - Rodapés por Família")
@@ -4951,7 +5000,7 @@ def run_rodapes_familia(doc, uidoc, view):
 
     try:
         if is_oc_fam:
-            sym = syms[cb_fam.SelectedIndex]
+            sym = syms[fam_idx_rp]
             # Se familia tiver altura/largura no tipo (ex OC_Altura do Elemento, Largura), ler para filtro e quinas
             for pnm in (u"OC_Altura do Elemento", u"Altura"):
                 try:
@@ -4985,7 +5034,7 @@ def run_rodapes_familia(doc, uidoc, view):
             )
             sym = _obter_ou_criar_familia_autobim(doc, fam_nm, kind, {"w_ft": esp_ft, "h_ft": h_ft})
 
-        mat_id, mat_explicit = _resolver_material_escolha(doc, cb_mat, mats_data, "rodape")
+        mat_id, mat_explicit = _resolver_material_escolha(doc, sc_mat, mats_data, "rodape")
         criados, voids_ok = _rodar_molding_por_ambiente(
             doc, rooms,
             is_wall_mode=False,

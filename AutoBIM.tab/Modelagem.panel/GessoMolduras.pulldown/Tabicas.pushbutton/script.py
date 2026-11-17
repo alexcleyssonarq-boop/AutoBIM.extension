@@ -5,7 +5,7 @@ __version__ = "Versão 1.0"
 __doc__ = """Gera automaticamente tabicas metálicas ou em perfil ao longo das bordas de forros soltos (pé-solto).
 
 Diferenciais:
-- Mede a folga real entre a borda do Forro e a face interna da Parede adjacente e gera família AutoBIM adaptativa ao vão medido (L ou Z), ou usa famílias OC_TABICA* carregadas no projeto.
+- Mede a folga real entre a borda do Forro e a face interna da Parede adjacente e gera família AutoBIM adaptativa ao vão medido (L ou Z), ou usa famílias de tabica carregadas no projeto.
 - Ignora bordas livres sem parede adjacente (como vãos abertos ou cortineiros).
 - Executa AddInstanceVoidCut automaticamente quando a família possuir elemento de corte."""
 

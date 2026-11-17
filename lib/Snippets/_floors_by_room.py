@@ -12,6 +12,11 @@ from System.Collections.Generic import List
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Architecture import Room
 from pyrevit import forms, revit, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 # Preenchidos a cada execução em run()
 doc   = None
@@ -64,7 +69,7 @@ def salvar_preferencias(dados):
 XAML = u"""
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Piso por Ambiente" Width="440" SizeToContent="Height"
+        Title="Piso por Ambiente" Width="465" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
         Background="#F3F3F3" FontFamily="Segoe UI" FontSize="12">
     <StackPanel Margin="18">
@@ -74,12 +79,68 @@ XAML = u"""
                        Foreground="#1F3A57"/>
         </Border>
 
-        <TextBlock Text="Tipo de piso do ambiente" FontWeight="SemiBold"/>
-        <ComboBox x:Name="cb_floor" Margin="0,3,0,12" Height="26"/>
+        <Grid Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Tipo de piso do ambiente" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1" x:Name="tx_floor_count" Foreground="#667085" FontSize="11" VerticalAlignment="Center"/>
+        </Grid>
+        <Border Background="White" BorderBrush="#C8D1DC" BorderThickness="1" CornerRadius="4,4,0,0" Padding="6,2">
+            <Grid Height="22">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="18"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Path Grid.Column="0" Data="M 10.5,6 A 4.5,4.5 0 1 1 1.5,6 A 4.5,4.5 0 1 1 10.5,6 M 9.2,9.2 L 13.5,13.5"
+                      Stroke="#667085" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      VerticalAlignment="Center" HorizontalAlignment="Center" Width="15" Height="15" IsHitTestVisible="False"/>
+                <Grid Grid.Column="1" Margin="4,0,2,0">
+                    <TextBlock x:Name="ph_floor_search" Text="Pesquisar tipo de piso..." Foreground="#8A94A6"
+                               VerticalAlignment="Center" IsHitTestVisible="False"/>
+                    <TextBox x:Name="tb_floor_search" Background="Transparent" BorderThickness="0"
+                             VerticalContentAlignment="Center" Padding="0"/>
+                </Grid>
+                <Button Grid.Column="2" x:Name="btn_floor_clear" Content="✕" Width="20" Height="20"
+                        Background="Transparent" BorderThickness="0" Foreground="#667085"
+                        FontSize="11" Cursor="Hand" Visibility="Collapsed" ToolTip="Limpar pesquisa"/>
+            </Grid>
+        </Border>
+        <ComboBox x:Name="cb_floor" Margin="0,-1,0,12" Height="26"/>
 
         <StackPanel x:Name="sp_soleira" Margin="0,0,0,12">
-            <TextBlock Text="Tipo de piso da soleira (material da soleira)" FontWeight="SemiBold"/>
-            <ComboBox x:Name="cb_sill_floor" Margin="0,3,0,0" Height="26"/>
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Tipo de piso da soleira (material da soleira)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" x:Name="tx_sill_count" Foreground="#667085" FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+            <Border Background="White" BorderBrush="#C8D1DC" BorderThickness="1" CornerRadius="4,4,0,0" Padding="6,2">
+                <Grid Height="22">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Path Grid.Column="0" Data="M 10.5,6 A 4.5,4.5 0 1 1 1.5,6 A 4.5,4.5 0 1 1 10.5,6 M 9.2,9.2 L 13.5,13.5"
+                          Stroke="#667085" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          VerticalAlignment="Center" HorizontalAlignment="Center" Width="15" Height="15" IsHitTestVisible="False"/>
+                    <Grid Grid.Column="1" Margin="4,0,2,0">
+                        <TextBlock x:Name="ph_sill_search" Text="Pesquisar tipo de soleira..." Foreground="#8A94A6"
+                                   VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBox x:Name="tb_sill_search" Background="Transparent" BorderThickness="0"
+                                 VerticalContentAlignment="Center" Padding="0"/>
+                    </Grid>
+                    <Button Grid.Column="2" x:Name="btn_sill_clear" Content="✕" Width="20" Height="20"
+                            Background="Transparent" BorderThickness="0" Foreground="#667085"
+                            FontSize="11" Cursor="Hand" Visibility="Collapsed" ToolTip="Limpar pesquisa"/>
+                </Grid>
+            </Border>
+            <ComboBox x:Name="cb_sill_floor" Margin="0,-1,0,0" Height="26"/>
         </StackPanel>
 
         <Grid Margin="0,0,0,12">
@@ -120,6 +181,7 @@ class OpcoesWindow(forms.WPFWindow):
         forms.WPFWindow.__init__(self, XAML, literal_string=True)
         self.confirmado = False
         self.resultado = {}
+        self._modo = modo
 
         self._cb_floor      = self.FindName("cb_floor")
         self._sp_soleira    = self.FindName("sp_soleira")
@@ -130,21 +192,34 @@ class OpcoesWindow(forms.WPFWindow):
         self._ck_ab         = self.FindName("ck_aberturas")
         self.FindName("tx_modo").Text = TEXTO_MODO[modo]
 
-        for n in nomes_pisos:
-            self._cb_floor.Items.Add(n)
-        for n in nomes_soleira:
-            self._cb_sill_floor.Items.Add(n)
+        self._sc_floor = uis.SearchableCombo(
+            self._cb_floor,
+            self.FindName("tb_floor_search"),
+            nomes_pisos,
+            clear_btn=self.FindName("btn_floor_clear"),
+            placeholder_el=self.FindName("ph_floor_search"),
+            count_el=self.FindName("tx_floor_count"),
+            initial_index=padroes["floor_idx"],
+        )
+        self._sc_sill = uis.SearchableCombo(
+            self._cb_sill_floor,
+            self.FindName("tb_sill_search"),
+            nomes_soleira,
+            clear_btn=self.FindName("btn_sill_clear"),
+            placeholder_el=self.FindName("ph_sill_search"),
+            count_el=self.FindName("tx_sill_count"),
+            initial_index=padroes["sill_idx"],
+        )
+
         for n in nomes_niveis:
             self._cb_level.Items.Add(n)
         for n in (u"Face de acabamento", u"Eixo da parede"):
             self._cb_boundary.Items.Add(n)
 
-        self._cb_floor.SelectedIndex      = padroes["floor_idx"]
-        self._cb_sill_floor.SelectedIndex = padroes["sill_idx"]
-        self._cb_level.SelectedIndex      = padroes["level_idx"]
-        self._cb_boundary.SelectedIndex   = padroes["boundary_idx"]
-        self._tb_offset.Text              = padroes["offset"]
-        self._ck_ab.IsChecked             = padroes["aberturas"]
+        self._cb_level.SelectedIndex    = padroes["level_idx"]
+        self._cb_boundary.SelectedIndex = padroes["boundary_idx"]
+        self._tb_offset.Text            = padroes["offset"]
+        self._ck_ab.IsChecked           = padroes["aberturas"]
 
         from System.Windows import Visibility
         if modo != MODO_SOLEIRA:
@@ -166,13 +241,18 @@ class OpcoesWindow(forms.WPFWindow):
             forms.alert("Informe o deslocamento em centímetros (ex.: 0 ou -5).")
             return
 
-        if self._cb_floor.SelectedIndex < 0 or self._cb_level.SelectedIndex < 0:
+        floor_idx = self._sc_floor.selected_index()
+        sill_idx  = self._sc_sill.selected_index()
+        if floor_idx < 0 or self._cb_level.SelectedIndex < 0:
             forms.alert("Selecione o tipo de piso e o nível.")
+            return
+        if self._modo == MODO_SOLEIRA and sill_idx < 0:
+            forms.alert("Selecione o tipo de piso da soleira.")
             return
 
         self.resultado = {
-            "floor_idx":    self._cb_floor.SelectedIndex,
-            "sill_idx":     self._cb_sill_floor.SelectedIndex,
+            "floor_idx":    floor_idx,
+            "sill_idx":     sill_idx,
             "level_idx":    self._cb_level.SelectedIndex,
             "boundary_idx": self._cb_boundary.SelectedIndex,
             "offset_cm":    offset_cm,

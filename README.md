@@ -7,6 +7,8 @@ Conjunto com **43 ferramentas automatizadas** divididas em 4 painéis no Revit (
 - **Cotas Automáticas (9)**: Cota por Linha, Cotar por Ambiente, Cotar Paredes Selecionadas, Cotar Parede e Aberturas, e menu *Cotas em Corte* (Cota Automática no Corte em 1 clique na vertical, Cotar Seleção no Corte levando alturas para fora do desenho, Cota Rápida no Corte, Pé-Direito por Ambiente/Vão com suporte a telhado/madeiramento e Cotas de Esquadrias).
 - **Documentação (10)**: Quadro de Acabamentos + Legenda Gráfica 1:1, Renumeração por Clique e em Lote, Tag Automática em Lote, Pé-Direito Automático para Tags (`PD = 2,80m` / `PD = 2,60 / 3,40m`), Vistas por Ambiente (2D/3D/Elevações), Centralizar Tags, Cotas de Nível (Planta e Corte) e Pranchas Auto.
 
+> Todas as janelas de seleção de famílias, tipos de piso/forro/parede, materiais, modelos de vista, carimbos, pranchas, tags, tabelas e estilos de cota/texto contam com **barra de pesquisa em tempo real** (tolerante a acentos e com múltiplos termos).
+
 ---
 
 ## Requisitos

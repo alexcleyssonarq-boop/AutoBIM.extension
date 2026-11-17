@@ -20,6 +20,11 @@ from System.Collections.Generic import List
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Architecture import Room
 from pyrevit import forms, revit, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -122,14 +127,15 @@ class ForrosWindow(forms.WPFWindow):
                      u"Selecionar ambientes manualmente na planta"):
             self._cb_escopo.Items.Add(item)
 
-        for n in nomes_forros:
-            self._cb_ceiling.Items.Add(n)
         for n in nomes_niveis:
             self._cb_level.Items.Add(n)
 
         self._cb_escopo.SelectedIndex = int(prefs.get("escopo_idx", 0))
         ultimo_forro = prefs.get("ceiling", "")
-        self._cb_ceiling.SelectedIndex = nomes_forros.index(ultimo_forro) if ultimo_forro in nomes_forros else 0
+        idx_forro = nomes_forros.index(ultimo_forro) if ultimo_forro in nomes_forros else 0
+        self._sc_ceiling = uis.SearchableCombo.attach_auto(
+            self._cb_ceiling, nomes_forros, placeholder=u"Pesquisar tipo de forro...", initial_index=idx_forro
+        )
         self._cb_level.SelectedIndex   = nivel_vista_idx
         self._tb_altura.Text           = str(prefs.get("altura_m", "2,60"))
         self._tb_tabica.Text           = str(prefs.get("tabica_cm", "0"))
@@ -153,9 +159,14 @@ class ForrosWindow(forms.WPFWindow):
             forms.alert("O recuo de tabica deve estar entre 0 e 50 cm.")
             return
 
+        ceil_idx = self._sc_ceiling.selected_index()
+        if ceil_idx < 0:
+            forms.alert("Selecione o tipo de forro.")
+            return
+
         self.resultado = {
             "escopo_idx":  self._cb_escopo.SelectedIndex,
-            "ceiling_idx": self._cb_ceiling.SelectedIndex,
+            "ceiling_idx": ceil_idx,
             "level_idx":   self._cb_level.SelectedIndex,
             "altura_m":    altura_m,
             "tabica_cm":   tabica_cm,

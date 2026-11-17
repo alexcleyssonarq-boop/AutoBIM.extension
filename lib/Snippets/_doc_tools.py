@@ -19,6 +19,11 @@ from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Architecture import Room, RoomTag
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from pyrevit import forms, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = None
 uidoc = None
@@ -1539,6 +1544,10 @@ class TagAutomaticaWindow(forms.WPFWindow):
         self._ck_anti.IsChecked  = bool(prefs.get("ta_anti_sob", True))
         self._ck_leader.IsChecked = bool(prefs.get("ta_leader", False))
 
+        self._sc_tipo = uis.SearchableCombo.attach_auto(
+            self._cb_tipo, [], placeholder=u"Pesquisar tipo de tag...", initial_index=0
+        )
+
         self._cb_cat.SelectionChanged += self._carregar_tipos_tag
         self._carregar_tipos_tag(None, None)
 
@@ -1549,14 +1558,10 @@ class TagAutomaticaWindow(forms.WPFWindow):
         idx = max(0, self._cb_cat.SelectedIndex)
         tag_bic = _TAG_CATS[idx][2]
         self._tipos_atuais = _listar_tipos_tag(tag_bic)
-        self._cb_tipo.Items.Clear()
         if not self._tipos_atuais:
-            self._cb_tipo.Items.Add(u"(Nenhum tipo de Tag carregado para esta categoria)")
-            self._cb_tipo.SelectedIndex = 0
+            self._sc_tipo.set_items([u"(Nenhum tipo de Tag carregado para esta categoria)"], initial_index=0)
         else:
-            for lbl, _ in self._tipos_atuais:
-                self._cb_tipo.Items.Add(lbl)
-            self._cb_tipo.SelectedIndex = 0
+            self._sc_tipo.set_items([lbl for lbl, _ in self._tipos_atuais], initial_index=0)
 
     def on_cancel(self, sender, args):
         self.confirmado = False
@@ -1572,7 +1577,10 @@ class TagAutomaticaWindow(forms.WPFWindow):
             forms.alert("Informe um valor numérico válido para o deslocamento (mm).")
             return
 
-        idx_t = max(0, min(len(self._tipos_atuais) - 1, self._cb_tipo.SelectedIndex))
+        idx_t = self._sc_tipo.selected_index()
+        if idx_t < 0 or idx_t >= len(self._tipos_atuais):
+            forms.alert(u"Selecione um tipo de Tag válido.")
+            return
         self.resultado = {
             "ta_cat":       max(0, self._cb_cat.SelectedIndex),
             "ta_tag_sym":   self._tipos_atuais[idx_t][1],
@@ -2522,6 +2530,9 @@ class RenumerarLoteWindow(forms.WPFWindow):
         self._ck_sf.IsChecked  = bool(prefs.get("rl_sf", True))
         self._ck_dup.IsChecked = bool(prefs.get("rl_sil_dup", True))
 
+        self._sc_sched = uis.SearchableCombo.attach_auto(
+            self._cb_sched, [], placeholder=u"Pesquisar tabela...", initial_index=0
+        )
         self._popular_tabelas_cat()
 
         self._cb_cat.SelectionChanged    += self._ao_mudar_cat
@@ -2545,11 +2556,8 @@ class RenumerarLoteWindow(forms.WPFWindow):
         idx = max(0, self._cb_cat.SelectedIndex)
         bic = _LOTE_CATS[idx][1]
         self._scheds_lista = _tabelas_compativeis(bic)
-        self._cb_sched.Items.Clear()
-        self._cb_sched.Items.Add(u"(Critérios manuais abaixo)")
-        for sc in self._scheds_lista:
-            self._cb_sched.Items.Add(getattr(sc, "Name", u"Tabela"))
-        self._cb_sched.SelectedIndex = 0
+        itens_sc = [u"(Critérios manuais abaixo)"] + [getattr(sc, "Name", u"Tabela") for sc in self._scheds_lista]
+        self._sc_sched.set_items(itens_sc, initial_index=0)
 
     def _ao_mudar_cat(self, sender, args):
         self._bloqueado = True
@@ -2565,7 +2573,7 @@ class RenumerarLoteWindow(forms.WPFWindow):
     def _ao_escolher_tabela(self, sender, args):
         if self._bloqueado:
             return
-        sidx = self._cb_sched.SelectedIndex
+        sidx = self._sc_sched.selected_index()
         if sidx <= 0 or sidx - 1 >= len(self._scheds_lista):
             self._custom_pids = [None, None, None, None]
             self._atualizar_preview_lista()
@@ -2641,7 +2649,7 @@ class RenumerarLoteWindow(forms.WPFWindow):
         escopo_idx = max(0, self._cb_escopo.SelectedIndex)
         alvo_modo = max(0, self._cb_alvo.SelectedIndex) if tem_tipo else 1
 
-        sidx = self._cb_sched.SelectedIndex
+        sidx = self._sc_sched.selected_index()
         sched = self._scheds_lista[sidx - 1] if (sidx > 0 and sidx - 1 < len(self._scheds_lista)) else None
 
         crits_spec = []

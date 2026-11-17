@@ -5,7 +5,7 @@ __version__ = "Versão 1.0"
 __doc__ = """Modela rodameios e molduras horizontais de parede contornando os ambientes selecionados na elevação configurada.
 
 Diferenciais:
-- Suporta famílias carregadas do projeto (OC_RODAMEIO* / OC_Boiserie*), perfis não-retos gerados pelo AutoBIM (Chanfrado, Boleado, Friso Duplo) e Parede Fina nativa com JoinGeometry.
+- Suporta famílias carregadas do projeto (CurveBased / Boiserie), perfis não-retos gerados pelo AutoBIM (Chanfrado, Boleado, Friso Duplo) e Parede Fina nativa com JoinGeometry.
 - Desconta automaticamente todas as Portas e Janelas que cruzam a elevação da moldura."""
 
 import os

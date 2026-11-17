@@ -22,6 +22,11 @@ from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Architecture import Room, RoomTag
 from Autodesk.Revit.UI.Selection import ObjectType, ISelectionFilter
 from pyrevit import forms, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = None
 uidoc = None
@@ -440,15 +445,15 @@ class VistasAmbienteWindow(forms.WPFWindow):
         self._ck_el.IsChecked = bool(prefs.get("va_el", True))
         self._ck_cv.IsChecked = bool(prefs.get("va_cv", False))
 
-        self._cb_tpl_pl.Items.Add(u"(Sem modelo / padrão)")
-        for t in tpls_pl:
-            self._cb_tpl_pl.Items.Add(t.Name)
-        self._cb_tpl_pl.SelectedIndex = 0
+        nomes_tpl_pl = [u"(Sem modelo / padrão)"] + [t.Name for t in tpls_pl]
+        self._sc_tpl_pl = uis.SearchableCombo.attach_auto(
+            self._cb_tpl_pl, nomes_tpl_pl, placeholder=u"Pesquisar modelo de vista...", initial_index=0
+        )
 
-        self._cb_tpl_el.Items.Add(u"(Sem modelo / padrão)")
-        for t in tpls_el:
-            self._cb_tpl_el.Items.Add(t.Name)
-        self._cb_tpl_el.SelectedIndex = 0
+        nomes_tpl_el = [u"(Sem modelo / padrão)"] + [t.Name for t in tpls_el]
+        self._sc_tpl_el = uis.SearchableCombo.attach_auto(
+            self._cb_tpl_el, nomes_tpl_el, placeholder=u"Pesquisar modelo de vista...", initial_index=0
+        )
 
         self.FindName("btn_ok").Click     += self.on_ok
         self.FindName("btn_cancel").Click += self.on_cancel
@@ -467,8 +472,8 @@ class VistasAmbienteWindow(forms.WPFWindow):
             forms.alert("Informe um número válido para a margem (cm).", title="Aviso")
             return
 
-        ip = self._cb_tpl_pl.SelectedIndex
-        ie = self._cb_tpl_el.SelectedIndex
+        ip = max(0, self._sc_tpl_pl.selected_index())
+        ie = max(0, self._sc_tpl_el.selected_index())
         self.resultado = {
             "va_esc":    max(0, self._cb_esc.SelectedIndex),
             "va_sca":    max(0, self._cb_sca.SelectedIndex),
@@ -1059,9 +1064,11 @@ class CotasNivelPlantaWindow(forms.WPFWindow):
         self._ck_ld     = self.FindName("ck_leader")
         self._ck_dup    = self.FindName("ck_evitar_dup")
 
-        for tp in tipos:
-            self._cb_tipo.Items.Add(_elem_name(tp))
-        self._cb_tipo.SelectedIndex = max(0, min(len(tipos) - 1, int(prefs.get("cnp_tipo", 0) or 0)))
+        nomes_tp = [_elem_name(tp) for tp in tipos]
+        idx_tp_ini = max(0, min(max(0, len(tipos) - 1), int(prefs.get("cnp_tipo", 0) or 0)))
+        self._sc_tipo = uis.SearchableCombo.attach_auto(
+            self._cb_tipo, nomes_tp, placeholder=u"Pesquisar tipo de cota...", initial_index=idx_tp_ini
+        )
 
         for a_lbl in (
             u"Logo abaixo da Room Tag real na vista",
@@ -1100,7 +1107,10 @@ class CotasNivelPlantaWindow(forms.WPFWindow):
             forms.alert("Informe números válidos para folga e deslocamentos.", title="Aviso")
             return
 
-        idx_t = max(0, self._cb_tipo.SelectedIndex)
+        idx_t = self._sc_tipo.selected_index()
+        if idx_t < 0:
+            forms.alert("Selecione um tipo de Cota de Nível.", title="Aviso")
+            return
         self.resultado = {
             "cnp_tipo":   idx_t,
             "cnp_ancora": max(0, self._cb_ancora.SelectedIndex),
@@ -1131,9 +1141,11 @@ class CotasNivelCorteWindow(forms.WPFWindow):
         self._ck_te     = self.FindName("ck_telhas")
         self._ck_ld     = self.FindName("ck_leader")
 
-        for tp in tipos:
-            self._cb_tipo.Items.Add(_elem_name(tp))
-        self._cb_tipo.SelectedIndex = max(0, min(len(tipos) - 1, int(prefs.get("cnc_tipo", 0) or 0)))
+        nomes_tp = [_elem_name(tp) for tp in tipos]
+        idx_tp_ini = max(0, min(max(0, len(tipos) - 1), int(prefs.get("cnc_tipo", 0) or 0)))
+        self._sc_tipo = uis.SearchableCombo.attach_auto(
+            self._cb_tipo, nomes_tp, placeholder=u"Pesquisar tipo de cota...", initial_index=idx_tp_ini
+        )
 
         for c_lbl in _MODOS_PISO_CAMADA:
             self._cb_camada.Items.Add(c_lbl)
@@ -1172,7 +1184,10 @@ class CotasNivelCorteWindow(forms.WPFWindow):
             forms.alert("Informe um número válido para a tolerância Z (cm).", title="Aviso")
             return
 
-        idx_t = max(0, self._cb_tipo.SelectedIndex)
+        idx_t = self._sc_tipo.selected_index()
+        if idx_t < 0:
+            forms.alert("Selecione um tipo de Cota de Nível.", title="Aviso")
+            return
         self.resultado = {
             "cnc_tipo":   idx_t,
             "cnc_camada": max(0, self._cb_camada.SelectedIndex),
@@ -2300,22 +2315,25 @@ class PranchasAutoWindow(forms.WPFWindow):
         self._cb_filtro  = self.FindName("cb_am_filtro")
         self._lb_vistas  = self.FindName("lb_vistas")
 
-        for sh in sheets:
-            self._cb_orig.Items.Add(u"{} - {}".format(sh.SheetNumber, sh.Name))
+        nomes_sh = [u"{} - {}".format(sh.SheetNumber, sh.Name) for sh in sheets]
+        self._sc_orig = uis.SearchableCombo.attach_auto(
+            self._cb_orig, nomes_sh, placeholder=u"Pesquisar prancha...", initial_index=0
+        )
         if sheets:
-            self._cb_orig.SelectedIndex = 0
             self._ao_mudar_sheet(None, None)
 
         for lbl, _ in _DUP_MODOS:
             self._cb_vmodo.Items.Add(lbl)
         self._cb_vmodo.SelectedIndex = max(0, min(len(_DUP_MODOS) - 1, int(prefs.get("pr_vmodo", 0) or 0)))
 
+        nomes_tb = []
         for tb in tbs:
             fn = getattr(tb, "FamilyName", u"") or u""
             tn = _elem_name(tb)
-            self._cb_tb.Items.Add(u"{} : {}".format(fn, tn) if fn else tn)
-        if tbs:
-            self._cb_tb.SelectedIndex = 0
+            nomes_tb.append(u"{} : {}".format(fn, tn) if fn else tn)
+        self._sc_tb = uis.SearchableCombo.attach_auto(
+            self._cb_tb, nomes_tb, placeholder=u"Pesquisar carimbo...", initial_index=0
+        )
 
         for f_lbl in (
             u"Todas as vistas elegíveis",
@@ -2344,7 +2362,7 @@ class PranchasAutoWindow(forms.WPFWindow):
         self._popular_vistas(None, None)
 
     def _ao_mudar_sheet(self, sender, args):
-        idx = self._cb_orig.SelectedIndex
+        idx = self._sc_orig.selected_index()
         if 0 <= idx < len(self._sheets):
             sh = self._sheets[idx]
             self._tb_dnum.Text  = _incrementar_codigo(sh.SheetNumber, 1)
@@ -2383,9 +2401,13 @@ class PranchasAutoWindow(forms.WPFWindow):
             except Exception:
                 forms.alert("Informe um número inteiro válido em Quantidade de cópias.", title="Aviso")
                 return
+            idx_orig = self._sc_orig.selected_index()
+            if idx_orig < 0:
+                forms.alert("Selecione uma prancha de origem.", title="Aviso")
+                return
             self.resultado = {
                 "modo":      0,
-                "orig":      self._sheets[max(0, self._cb_orig.SelectedIndex)],
+                "orig":      self._sheets[idx_orig],
                 "num_ini":   (self._tb_dnum.Text or u"A02").strip(),
                 "nome_base": (self._tb_dnome.Text or u"Prancha").strip(),
                 "qtd":       qtd,
@@ -2411,9 +2433,13 @@ class PranchasAutoWindow(forms.WPFWindow):
             except Exception:
                 forms.alert("Informe valores numéricos para reserva de carimbo e folga.", title="Aviso")
                 return
+            idx_tb = self._sc_tb.selected_index()
+            if idx_tb < 0:
+                forms.alert("Selecione um Carimbo (TitleBlock).", title="Aviso")
+                return
             self.resultado = {
                 "modo":      1,
-                "tb":        self._tbs[max(0, self._cb_tb.SelectedIndex)],
+                "tb":        self._tbs[idx_tb],
                 "num_ini":   (self._tb_am_num.Text or u"PR-01").strip(),
                 "nome_base": (self._tb_am_nome.Text or u"Detalhamento").strip(),
                 "car_cm":    car_cm,

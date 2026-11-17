@@ -20,6 +20,11 @@ from System.Collections.Generic import List
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Architecture import Room
 from pyrevit import forms, revit, script
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = __revit__.ActiveUIDocument.Document
 uidoc = __revit__.ActiveUIDocument
@@ -114,13 +119,14 @@ class RevestimentoWindow(forms.WPFWindow):
         self._ck_join  = self.FindName("ck_join")
         self._ck_nrb   = self.FindName("ck_no_room_bound")
 
-        for n in nomes_paredes:
-            self._cb_wt.Items.Add(n)
         for n in nomes_niveis:
             self._cb_lvl.Items.Add(n)
 
         ultimo_wt = prefs.get("wall_type", "")
-        self._cb_wt.SelectedIndex  = nomes_paredes.index(ultimo_wt) if ultimo_wt in nomes_paredes else 0
+        idx_wt = nomes_paredes.index(ultimo_wt) if ultimo_wt in nomes_paredes else 0
+        self._sc_wt = uis.SearchableCombo.attach_auto(
+            self._cb_wt, nomes_paredes, placeholder=u"Pesquisar tipo de parede...", initial_index=idx_wt
+        )
         self._cb_lvl.SelectedIndex = nivel_vista_idx
         self._tb_alt.Text          = str(prefs.get("altura_m", "2,60"))
         self._tb_base.Text         = str(prefs.get("base_cm", "0"))
@@ -146,8 +152,13 @@ class RevestimentoWindow(forms.WPFWindow):
             forms.alert("A altura deve ser maior que zero.")
             return
 
+        wt_idx = self._sc_wt.selected_index()
+        if wt_idx < 0:
+            forms.alert("Selecione o tipo de parede.")
+            return
+
         self.resultado = {
-            "wt_idx":        self._cb_wt.SelectedIndex,
+            "wt_idx":        wt_idx,
             "lvl_idx":       self._cb_lvl.SelectedIndex,
             "altura_m":      altura_m,
             "base_cm":       base_cm,

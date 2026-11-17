@@ -20,6 +20,11 @@ from Autodesk.Revit.DB.Architecture import Room, RoomTag
 from Autodesk.Revit.UI.Selection import ObjectType, ObjectSnapTypes, ISelectionFilter
 from pyrevit import forms, script
 import Snippets._doc_extra as de
+import Snippets._ui_search as uis
+try:
+    reload(uis)
+except Exception:
+    pass
 
 doc   = None
 uidoc = None
@@ -1296,9 +1301,11 @@ class CotarPeDireitoWindow(forms.WPFWindow):
             self._cb_pos.Items.Add(p)
         self._cb_pos.SelectedIndex = max(0, min(3, int(prefs.get("pd_pos", 0) or 0)))
 
-        for dt in dim_types:
-            self._cb_tipo.Items.Add(de._elem_name(dt))
-        self._cb_tipo.SelectedIndex = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("pd_tipo", 0) or 0)))
+        nomes_dt = [de._elem_name(dt) for dt in dim_types]
+        idx_dt_ini = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("pd_tipo", 0) or 0)))
+        self._sc_tipo = uis.SearchableCombo.attach_auto(
+            self._cb_tipo, nomes_dt, placeholder=u"Pesquisar tipo de cota...", initial_index=idx_dt_ini
+        )
 
         self._ck_pf.IsChecked   = bool(prefs.get("pd_pf", True))
         self._ck_fl.IsChecked   = bool(prefs.get("pd_fl", True))
@@ -1317,7 +1324,7 @@ class CotarPeDireitoWindow(forms.WPFWindow):
         if not (self._ck_pf.IsChecked or self._ck_fl.IsChecked or self._ck_tot.IsChecked):
             forms.alert("Marque ao menos uma opção de cota vertical.", title="Aviso")
             return
-        idx_t = max(0, self._cb_tipo.SelectedIndex)
+        idx_t = max(0, self._sc_tipo.selected_index())
         self.resultado = {
             "pd_escopo": max(0, self._cb_esc.SelectedIndex),
             "pd_pos":    max(0, self._cb_pos.SelectedIndex),
@@ -1673,9 +1680,11 @@ class CotarEsquadriasCorteWindow(forms.WPFWindow):
             self._cb_lado.Items.Add(ld)
         self._cb_lado.SelectedIndex = max(0, min(2, int(prefs.get("eq_lado", 0) or 0)))
 
-        for dt in dim_types:
-            self._cb_tipo.Items.Add(de._elem_name(dt))
-        self._cb_tipo.SelectedIndex = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("eq_tipo", 0) or 0)))
+        nomes_dt = [de._elem_name(dt) for dt in dim_types]
+        idx_dt_ini = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("eq_tipo", 0) or 0)))
+        self._sc_tipo = uis.SearchableCombo.attach_auto(
+            self._cb_tipo, nomes_dt, placeholder=u"Pesquisar tipo de cota...", initial_index=idx_dt_ini
+        )
 
         self._ck_jan.IsChecked = bool(prefs.get("eq_jan", True))
         self._ck_por.IsChecked = bool(prefs.get("eq_por", True))
@@ -1695,7 +1704,7 @@ class CotarEsquadriasCorteWindow(forms.WPFWindow):
         if not (self._ck_jan.IsChecked or self._ck_por.IsChecked):
             forms.alert("Marque ao menos Janelas ou Portas.", title="Aviso")
             return
-        idx_t = max(0, self._cb_tipo.SelectedIndex)
+        idx_t = max(0, self._sc_tipo.selected_index())
         self.resultado = {
             "eq_escopo": max(0, self._cb_esc.SelectedIndex),
             "eq_lado":   max(0, self._cb_lado.SelectedIndex),
@@ -2289,9 +2298,11 @@ class InclinacaoTelhadoWindow(forms.WPFWindow):
             self._cb_dir.Items.Add(d)
         self._cb_dir.SelectedIndex = max(0, min(1, int(prefs.get("it_dir", 0) or 0)))
 
-        for tt in text_types:
-            self._cb_txt.Items.Add(de._elem_name(tt))
-        self._cb_txt.SelectedIndex = max(0, min(max(0, len(text_types) - 1), int(prefs.get("it_txt", 0) or 0)))
+        nomes_tt = [de._elem_name(tt) for tt in text_types]
+        idx_tt_ini = max(0, min(max(0, len(text_types) - 1), int(prefs.get("it_txt", 0) or 0)))
+        self._sc_txt = uis.SearchableCombo.attach_auto(
+            self._cb_txt, nomes_tt, placeholder=u"Pesquisar tipo de texto...", initial_index=idx_tt_ini
+        )
 
         self._tb_off.Text = str(prefs.get("it_off", "3.5"))
         self._tb_len.Text = str(prefs.get("it_len", "14.0"))
@@ -2313,7 +2324,10 @@ class InclinacaoTelhadoWindow(forms.WPFWindow):
         except Exception:
             forms.alert("Informe números válidos para distância e comprimento em mm.", title="Aviso")
             return
-        idx_t = max(0, self._cb_txt.SelectedIndex)
+        idx_t = self._sc_txt.selected_index()
+        if idx_t < 0:
+            forms.alert("Selecione um TextNoteType.", title="Aviso")
+            return
         self.resultado = {
             "it_esc":    max(0, self._cb_esc.SelectedIndex),
             "it_est":    max(0, self._cb_est.SelectedIndex),
