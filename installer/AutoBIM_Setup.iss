@@ -2,7 +2,7 @@
 ; Instale o Inno Setup 6 (https://jrsoftware.org/isdl.php) e compile este arquivo.
 
 #define MyAppName "AutoBIM para Revit (pyRevit)"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Alex Cleysson"
 #define MyAppURL "https://github.com/alexcleyssonarq-boop/AutoBIM.extension"
 

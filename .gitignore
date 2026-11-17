@@ -16,8 +16,10 @@ _cache_rfa/
 *_settings.json
 _AutoBIM_PeDireito_SP.txt
 
-# Builds / instaladores gerados localmente
+# Builds / instaladores / scripts locais
 installer/Output/
+Output/
 dist/
 *.exe
 *.zip
+publicar_release.ps1

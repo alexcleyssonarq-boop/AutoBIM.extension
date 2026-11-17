@@ -2,7 +2,7 @@
               AUTOBIM (pyRevit) — ROTEIRO E IDEIAS DE FERRAMENTAS
 ===========================================================================
 
-FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
+FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (43 comandos):
 ---------------------------------------------------------------------------
 [Painel: Cotas Automáticas]
   1. Cotar por Ambiente
@@ -16,15 +16,25 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
   4. Cota Rápida por Linha
      - Cota em cadeia todas as paredes cruzadas entre dois cliques na
        planta (com snap desativado e marcador alvo circular temporário).
-  5. Menu "Cotas em Corte" (Pulldown com 3 modos)
+  5. Menu "Cotas em Corte" (Pulldown com 5 modos)
+     - Cota Automática no Corte (1 clique): cota o corte na vertical sem
+       perguntas — cadeia vertical externa (lajes/forros/cobertura/paredes +
+       altura total), pé-direito dos ambientes/vãos e portas/janelas visíveis.
+     - Cotar Seleção no Corte (estilo Cotar Paredes Selecionadas, vertical):
+       selecione ou pré-selecione com caixa pisos/lajes, forros, telhados,
+       vigas, pilares ou paredes; gera cadeia vertical externa + altura total
+       automaticamente pelo lado de fora do desenho sem colidir com cotas
+       existentes.
      - Cota Rápida no Corte: cadeia automática (vertical ou horizontal) por
        2 cliques com snap desligado cruzando base da laje, piso acabado,
-       face inferior do forro, paredes/vigas cortadas e cobertura sólida
-       (ignorando vidraças inclinadas e esquadrias).
-     - Pé-Direito por Ambiente: cota Piso acabado → Forro → Laje superior
-       automaticamente para cada Room cortado, deslocada do centro.
+       face inferior do forro, cobertura/madeiramento, portas/janelas,
+       paredes/vigas cortadas e níveis.
+     - Pé-Direito por Ambiente: cota Piso acabado → Forro/Cobertura → Laje
+       automaticamente com janela de opções no clique (inclusive em vãos
+       entre paredes sem Room e sob telhados/terças sem forro).
      - Cotas de Esquadrias: cota Peitoril, Altura e Boneca superior até
-       Forro/Laje (mais largura opcional em elevação frontal).
+       Forro/Laje com janela de opções no clique (mais largura opcional em
+       elevação frontal).
 
 [Painel: Modelagem]
   5. Menu "Piso por Ambiente" (Pulldown com 3 modos)
@@ -132,9 +142,14 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
 [x] Revestimento e Rodapé de Parede por Ambiente
 [x] Estrutura de Cobertura (Madeiramento, Vidraça, Tesouras, Pontaletes,
     Estrutura Metálica 3D/Vidraça e Treliças Metálicas)
-[ ] Calhas, Rufos e Tabeiras Automáticos no Beiral / Platibanda (Em estudo / futuro)
 [x] Cortineiros, Sancas, Tabicas e Rodameios por Ambiente + Rodapés por Família (IMPLEMENTADO)
 [x] Lista de Corte e Quantitativo da Estrutura de Cobertura (Tabela Revit + CSV) (IMPLEMENTADO)
+[ ] Distribuir Luminárias em Grade por Ambiente
+    - Seleciona a família (spot / painel LED) e a malha (ex.: 2x2 ou 3x2),
+      centralizando e hospedando automaticamente na cota real do forro.
+[ ] Caimento / Rebaixo Automático em Áreas Molhadas (SlabShape)
+    - Aplica rebaixo e inclinação automática no piso até o ponto/ralo clicado
+      ou linha do box sem precisar editar subelementos manualmente.
 
 
 2. PAINEL: DOCUMENTAÇÃO (Anotação, Tags e Pranchas)
@@ -181,6 +196,19 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
     - Duplica folha copiando carimbo, tabelas, legendas, textos e vistas,
       ou distribui múltiplas vistas em novas pranchas automaticamente.
 
+[ ] Exportar Múltiplas Pranchas em DWG Único + Lote PDF/DWG Padronizado
+    - Se houver AutoCAD completo instalado, exporta as pranchas selecionadas
+      e une tudo invisivelmente (via accoreconsole.exe) em 1 único DWG com
+      abas de Layout individuais e Model deslocado lado a lado (mais fallback
+      para DWG único nativo só do ModelSpace ou exportação em lote PDF/DWG).
+
+[ ] Preencher Tabela de Esquadrias Automático (Portas / Janelas)
+    - Preenche em lote ambiente De → Para, sentido de abertura (Esq/Dir)
+      e largura livre para tags e tabelas de esquadrias.
+
+[ ] Padronizar Caixa de Texto (MAIÚSCULAS / Título ABNT) em Lote
+    - Converte nomes de ambientes (Rooms), vistas e pranchas em 1 clique.
+
 
 3. PAINEL: AUDITORIA E VISUALIZAÇÃO (Qualidade de Vida)
 ---------------------------------------------------------------------------
@@ -195,4 +223,8 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (41 comandos):
 [ ] Ajustar Elevação Padrão de Pontos Elétricos / Hidráulicos
     - Padroniza em lote a altura (Elevation from Level) de tomadas
       baixas/médias/altas, interruptores e pontos hidráulicos selecionados.
+
+[ ] Limpeza e Raio-X do Modelo (Pré-Entrega)
+    - Localiza e lista CADs importados perdidos, ambientes não colocados ou
+      redundantes, vistas fora de prancha e famílias/tipos sem uso.
 ===========================================================================

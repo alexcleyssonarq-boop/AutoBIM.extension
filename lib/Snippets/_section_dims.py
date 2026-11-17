@@ -116,6 +116,47 @@ def _filtrar_refs_por_intervalo_u(u_lo, u_hi, u_probe, tol=0.35):
     return (u_lo - tol) <= u_probe <= (u_hi + tol)
 
 
+def _extrair_vaos_entre_intervalos_u(intervalos_paredes, gap_min=0.45 / 0.3048):
+    """Recebe intervalos ocupados por paredes [(u_lo, u_hi), ...] e retorna os vaos livres internos [(u_a, u_b), ...]."""
+    if not intervalos_paredes or len(intervalos_paredes) < 2:
+        return []
+    ord_iv = sorted((min(a, b), max(a, b)) for a, b in intervalos_paredes)
+    fundidos = [list(ord_iv[0])]
+    for lo, hi in ord_iv[1:]:
+        if lo <= fundidos[-1][1] + 0.05 / 0.3048:
+            if hi > fundidos[-1][1]:
+                fundidos[-1][1] = hi
+        else:
+            fundidos.append([lo, hi])
+    vaos = []
+    for i in range(len(fundidos) - 1):
+        ua = fundidos[i][1]
+        ub = fundidos[i + 1][0]
+        if (ub - ua) >= gap_min:
+            vaos.append((ua, ub))
+    return vaos
+
+
+def _proximo_slot_externo(base_coord, step, ocupados, sentido=1, tol=None):
+    """Avanca base_coord para fora (+1 ou -1) enquanto colidir com cotas existentes em ocupados."""
+    pos = float(base_coord)
+    if not ocupados or step <= 1e-6:
+        return pos
+    if tol is None:
+        tol = 0.45 * step
+    sg = 1.0 if sentido >= 0 else -1.0
+    for _ in range(16):
+        colide = False
+        for c in ocupados:
+            if abs(pos - float(c)) <= tol:
+                colide = True
+                break
+        if not colide:
+            break
+        pos += sg * step
+    return pos
+
+
 # ==============================================================================
 # HELPERS REVIT PARA CORTE / ELEVACAO
 # ==============================================================================
@@ -642,6 +683,115 @@ def _edges_horizontais_telhado_no_u(roof, v_view, u_alvo, z_min, z_max, u_tol):
     return res
 
 
+def _extrair_refs_geom_cobertura_vertical(geom_el, tag, org, rdir, upv, u_alvo=None, u_tol=0.0, z_min=-1e9, z_max=1e9):
+    """Extrai faces/edges horizontais e extremidades de arestas inclinadas de uma geometria no plano (u, z)."""
+    res = []
+    if geom_el is None:
+        return res
+    for obj in geom_el:
+        if isinstance(obj, Solid) and obj.Volume > 1e-7:
+            s = obj
+            for fc in s.Faces:
+                if isinstance(fc, PlanarFace) and getattr(fc, "Reference", None) is not None:
+                    if abs(fc.FaceNormal.DotProduct(upv)) >= 0.985:
+                        p = fc.Origin
+                        _, zc = _uv_em_vista(p, org, rdir, upv)
+                        if z_min <= zc <= z_max and (u_alvo is None or _face_cobre_ponto_xy(fc, org + rdir * u_alvo)):
+                            res.append((zc, fc.Reference, tag + "Face"))
+            for ed in s.Edges:
+                rf_ed = getattr(ed, "Reference", None)
+                try:
+                    crv = ed.AsCurve()
+                    p0 = crv.GetEndPoint(0)
+                    p1 = crv.GetEndPoint(1)
+                    u0, z0 = _uv_em_vista(p0, org, rdir, upv)
+                    u1, z1 = _uv_em_vista(p1, org, rdir, upv)
+                    if abs(z1 - z0) <= 0.02 * FT:
+                        zm = 0.5 * (z0 + z1)
+                        lo_u, hi_u = min(u0, u1), max(u0, u1)
+                        if rf_ed is not None and z_min <= zm <= z_max and (u_alvo is None or (lo_u - u_tol) <= u_alvo <= (hi_u + u_tol)):
+                            res.append((zm, rf_ed, tag + "Edge"))
+                    else:
+                        lo_u, hi_u = min(u0, u1), max(u0, u1)
+                        if u_alvo is None or (lo_u - 0.05 * FT) <= u_alvo <= (hi_u + 0.05 * FT):
+                            for idx_ep, (ue, ze) in ((0, (u0, z0)), (1, (u1, z1))):
+                                if (u_alvo is None or abs(ue - u_alvo) <= max(u_tol, 0.35 * FT)) and z_min <= ze <= z_max:
+                                    try:
+                                        rf_pt = ed.GetEndPointReference(idx_ep)
+                                        if rf_pt is not None:
+                                            res.append((ze, rf_pt, tag + "Pt"))
+                                    except Exception:
+                                        pass
+                except Exception:
+                    pass
+        elif isinstance(obj, GeometryInstance):
+            try:
+                res.extend(_extrair_refs_geom_cobertura_vertical(
+                    obj.GetInstanceGeometry(), tag, org, rdir, upv, u_alvo, u_tol, z_min, z_max
+                ))
+            except Exception:
+                pass
+    return res
+
+
+def _coletar_refs_cobertura_vertical(v_view, u_alvo, u_tol, z_min, z_max, incluir_madeira=True):
+    """
+    Coleta referencias verticais validas para telhados (planos ou inclinados) e madeiramento
+    (caibros/tercas, ignorando ripas) proximos ao u_alvo dentro da faixa [z_min, z_max].
+    Usa faces horizontais, arestas horizontais e vertices de extremidade de arestas inclinadas.
+    """
+    org  = v_view.Origin
+    rdir = v_view.RightDirection
+    upv  = v_view.UpDirection
+    opts = Options()
+    opts.ComputeReferences = True
+    opts.View = v_view
+    try:
+        opts.DetailLevel = ViewDetailLevel.Fine
+    except Exception:
+        pass
+
+    res = []
+
+    for roof in FilteredElementCollector(doc, v_view.Id).OfClass(RoofBase).WhereElementIsNotElementType().ToElements():
+        if de._eh_vidraca_inclinada(roof):
+            continue
+        bb_uv = _bb_uv_em_vista(roof, v_view)
+        if bb_uv is None or bb_uv[1] < u_alvo - u_tol - 0.5 * FT or bb_uv[0] > u_alvo + u_tol + 0.5 * FT:
+            continue
+        if bb_uv[3] < z_min - 0.5 * FT or bb_uv[2] > z_max + 0.5 * FT:
+            continue
+        try:
+            res.extend(_extrair_refs_geom_cobertura_vertical(
+                roof.get_Geometry(opts), "Roof", org, rdir, upv, u_alvo, u_tol, z_min, z_max
+            ))
+        except Exception:
+            pass
+
+    if incluir_madeira:
+        for bic in (BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_CurtainWallMullions):
+            for el in FilteredElementCollector(doc, v_view.Id).OfCategory(bic).WhereElementIsNotElementType().ToElements():
+                try:
+                    pc = el.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+                    if pc is not None and pc.AsString() and u"ripa" in unicode(pc.AsString()).lower():
+                        continue
+                except Exception:
+                    pass
+                bb_uv = _bb_uv_em_vista(el, v_view)
+                if bb_uv is None or bb_uv[1] < u_alvo - u_tol or bb_uv[0] > u_alvo + u_tol:
+                    continue
+                if bb_uv[3] < z_min - 0.5 * FT or bb_uv[2] > z_max + 0.5 * FT:
+                    continue
+                try:
+                    res.extend(_extrair_refs_geom_cobertura_vertical(
+                        el.get_Geometry(opts), "Mad", org, rdir, upv, u_alvo, u_tol, z_min, z_max
+                    ))
+                except Exception:
+                    pass
+
+    return res
+
+
 def _mesclar_camadas_piso(camadas, tol_gap=0.164, tol_u=2.62):
     """Agrupa camadas contiguas de piso/laje (sem depender da flag Estrutural) e retorna apenas base e topo finais."""
     itens = []
@@ -734,6 +884,7 @@ def run_cotar_corte_linha():
                     tmk.Start()
                     marker_ids = _criar_marcador_secao(pt1, rdir, upv, with_ring=anel)
                     tmk.Commit()
+                uidoc.RefreshActiveView()
                 break
             except Exception:
                 marker_ids = []
@@ -946,16 +1097,41 @@ def run_cotar_corte_linha():
                 if v_lo <= vc <= v_hi and _face_cobre_ponto_xy(fc, org + rdir * _u_na_altura(vc)):
                     refs_cands.append((vc, rf, "BeamH"))
 
-        # 5) Lajes de cobertura / telhados planos solidos cruzados no corte (ignora vidracas inclinadas)
-        for roof in FilteredElementCollector(doc, view.Id).OfClass(RoofBase).WhereElementIsNotElementType().ToElements():
-            if de._eh_vidraca_inclinada(roof):
-                continue
-            bb_uv = _bb_uv_em_vista(roof, view)
-            if bb_uv is None or bb_uv[3] < v_lo or bb_uv[2] > v_hi:
-                continue
-            for vc, fc, rf in _faces_normais_direcao(roof, view, upv, min_dot=0.985):
-                if v_lo <= vc <= v_hi and _face_cobre_ponto_xy(fc, org + rdir * _u_na_altura(vc)):
-                    refs_cands.append((vc, rf, "RoofFlat"))
+        # 5) Cobertura (Telhados planos ou inclinados) e Madeiramento (Caibros/Tercas) cruzados no u medio
+        u_mid_v = 0.5 * (u1 + u2)
+        u_tol_cob = max(0.35 * FT, 0.5 * du + 0.15 * FT)
+        for zc, rfc, tagc in _coletar_refs_cobertura_vertical(view, u_mid_v, u_tol_cob, v_lo, v_hi, incluir_madeira=True):
+            if v_lo <= zc <= v_hi:
+                refs_cands.append((zc, rfc, tagc))
+
+        # 6) Portas e Janelas cruzadas verticalmente pela faixa da linha (peitoril e verga)
+        u_esq_lo, u_esq_hi = min(u1, u2) - 0.15 * FT, max(u1, u2) + 0.15 * FT
+        for cat_e in (BuiltInCategory.OST_Windows, BuiltInCategory.OST_Doors):
+            for fi in FilteredElementCollector(doc, view.Id).OfCategory(cat_e).WhereElementIsNotElementType().ToElements():
+                if not isinstance(fi, FamilyInstance) or getattr(fi, "SuperComponent", None) is not None:
+                    continue
+                bb_uv = _bb_uv_em_vista(fi, view)
+                if bb_uv is None:
+                    continue
+                if bb_uv[1] < u_esq_lo or bb_uv[0] > u_esq_hi or bb_uv[3] < v_lo or bb_uv[2] > v_hi:
+                    continue
+                vb, rfb, vt, rft = _refs_verticais_esquadria(fi, view)
+                if rfb is not None and v_lo <= vb <= v_hi:
+                    refs_cands.append((vb, rfb, "EsqBot"))
+                if rft is not None and v_lo <= vt <= v_hi:
+                    refs_cands.append((vt, rft, "EsqTop"))
+
+        # 7) Se ainda faltarem referencias de base (ex.: linha cruzou nivel sem piso), inclui Levels dentro do trecho
+        if len(refs_cands) < 2:
+            for lv in FilteredElementCollector(doc).OfClass(Level).ToElements():
+                try:
+                    vc_lv = (lv.Elevation - org.Z) * upv.Z
+                    if v_lo <= vc_lv <= v_hi:
+                        rf_lv = lv.GetPlaneReference()
+                        if rf_lv is not None:
+                            refs_cands.append((vc_lv, rf_lv, "Level"))
+                except Exception:
+                    pass
 
     else:
         u_lo, u_hi = min(u1, u2), max(u1, u2)
@@ -994,6 +1170,23 @@ def run_cotar_corte_linha():
                 for uc, fc, rf in _faces_normais_direcao(el, view, rdir, min_dot=0.985):
                     if u_lo <= uc <= u_hi:
                         refs_cands.append((uc, rf, "ColV"))
+
+        # Portas e Janelas cruzadas na altura da linha horizontal (ombreiras E/D)
+        for cat_e in (BuiltInCategory.OST_Windows, BuiltInCategory.OST_Doors):
+            for fi in FilteredElementCollector(doc, view.Id).OfCategory(cat_e).WhereElementIsNotElementType().ToElements():
+                if not isinstance(fi, FamilyInstance) or getattr(fi, "SuperComponent", None) is not None:
+                    continue
+                bb_uv = _bb_uv_em_vista(fi, view)
+                if bb_uv is None:
+                    continue
+                u_el_lo, u_el_hi, v_el_lo, v_el_hi, _ = bb_uv
+                if u_el_hi < u_lo or u_el_lo > u_hi or not _filtrar_refs_por_intervalo_u(v_el_lo, v_el_hi, v_line, tol=band_v):
+                    continue
+                ul, rfl, ur, rfr = _refs_horizontais_esquadria(fi, view)
+                if rfl is not None and u_lo <= ul <= u_hi:
+                    refs_cands.append((ul, rfl, "EsqL"))
+                if rfr is not None and u_lo <= ur <= u_hi:
+                    refs_cands.append((ur, rfr, "EsqR"))
 
     dim_criada = None
     with Transaction(doc, u"Criar Cota no Corte") as td:
@@ -1140,33 +1333,110 @@ class CotarPeDireitoWindow(forms.WPFWindow):
         self.Close()
 
 
-def run_cotar_pe_direito():
-    _verificar_view_section(u"Pé-Direito Automático no Corte")
-    dim_types = _listar_tipos_cota_linear()
-    prefs = _carregar_prefs()
-    win = CotarPeDireitoWindow(prefs, dim_types)
-    win.ShowDialog()
-    if not win.confirmado:
-        script.exit()
+def _resolver_opcoes_pe_direito(prefs, dim_types, abrir_config):
+    if abrir_config:
+        win = CotarPeDireitoWindow(prefs, dim_types)
+        win.ShowDialog()
+        if not win.confirmado:
+            script.exit()
+        op = win.resultado
+        _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+        return op
 
-    op = win.resultado
-    _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+    idx_t = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("pd_tipo", 0) or 0)))
+    return {
+        "pd_escopo": max(0, min(1, int(prefs.get("pd_escopo", 0) or 0))),
+        "pd_pos":    max(0, min(3, int(prefs.get("pd_pos", 0) or 0))),
+        "pd_tipo":   idx_t,
+        "pd_pf":     bool(prefs.get("pd_pf", True)),
+        "pd_fl":     bool(prefs.get("pd_fl", True)),
+        "pd_tot":    bool(prefs.get("pd_tot", False)),
+        "pd_acab":   bool(prefs.get("pd_acab", True)),
+        "pd_lvl":    bool(prefs.get("pd_lvl", True)),
+        "dim_type":  dim_types[idx_t] if dim_types else None,
+    }
 
+
+def _vaos_sem_room_no_corte(v_view):
+    """Detecta vaos internos entre paredes cortadas na vista caso nao existam Rooms modelados."""
+    org  = v_view.Origin
+    rdir = v_view.RightDirection
+    upv  = v_view.UpDirection
+    crop_uv = _crop_uv_em_vista(v_view)
+
+    iv_walls = []
+    v_mins = []
+    v_maxs = []
+    for wl in FilteredElementCollector(doc, v_view.Id).OfClass(Wall).WhereElementIsNotElementType().ToElements():
+        if not _parede_corta_plano_secao(wl, v_view):
+            continue
+        bb_uv = _bb_uv_em_vista(wl, v_view)
+        if bb_uv is None:
+            continue
+        u0, u1, v0, v1, _ = bb_uv
+        if crop_uv is not None:
+            if u1 < crop_uv[0] or u0 > crop_uv[1] or v1 < crop_uv[2] or v0 > crop_uv[3]:
+                continue
+        iv_walls.append((u0, u1))
+        v_mins.append(v0)
+        v_maxs.append(v1)
+
+    vaos = _extrair_vaos_entre_intervalos_u(iv_walls)
+    if not vaos:
+        return []
+
+    z_min_g = org.Z + (min(v_mins) if v_mins else 0.0) * upv.Z
+    z_max_g = org.Z + (max(v_maxs) if v_maxs else 3.0 * FT) * upv.Z
+    vx, vy = v_view.ViewDirection.X, v_view.ViewDirection.Y
+    rx, ry = rdir.X, rdir.Y
+
+    res = []
+    for ua, ub in vaos:
+        res.append({
+            "room":    None,
+            "u_a":     ua,
+            "u_b":     ub,
+            "u_mid":   0.5 * (ua + ub),
+            "z_min":   z_min_g,
+            "z_max":   z_max_g,
+            "z_probe": 0.5 * (z_min_g + z_max_g),
+            "org":     org,
+            "rx":      rx,
+            "ry":      ry,
+            "vx":      vx,
+            "vy":      vy,
+            "t_v":     0.0,
+        })
+    return res
+
+
+def _executar_cotas_pe_direito(op, floors=None, ceilings=None, rooms_pre_filtro=None):
     rooms_corte = de._rooms_cortados_no_corte(view)
-    if op["pd_escopo"] == 1:
-        sel_ids = set(str(eid) for eid in uidoc.Selection.GetElementIds())
-        for eid in list(uidoc.Selection.GetElementIds()):
-            el = doc.GetElement(eid)
-            if isinstance(el, RoomTag) and el.Room is not None:
-                sel_ids.add(str(el.Room.Id))
-        if sel_ids:
-            rooms_corte = [rc for rc in rooms_corte if str(rc["room"].Id) in sel_ids]
+    sel_ids = set(str(eid) for eid in uidoc.Selection.GetElementIds())
+    for eid in list(uidoc.Selection.GetElementIds()):
+        el = doc.GetElement(eid)
+        if isinstance(el, RoomTag) and el.Room is not None:
+            sel_ids.add(str(el.Room.Id))
 
+    if rooms_pre_filtro is not None:
+        rooms_corte = rooms_pre_filtro
+    elif sel_ids and op.get("pd_escopo", 0) == 1:
+        rooms_corte = [rc for rc in rooms_corte if str(rc["room"].Id) in sel_ids]
+    elif sel_ids:
+        matched = [rc for rc in rooms_corte if str(rc["room"].Id) in sel_ids]
+        if matched:
+            rooms_corte = matched
+
+    usando_vaos_fallback = False
     if not rooms_corte:
-        forms.alert("Nenhum Ambiente (Room) cortado foi encontrado nesta vista.", title="Pé-Direito")
-        script.exit()
+        rooms_corte = _vaos_sem_room_no_corte(view)
+        usando_vaos_fallback = True
+    if not rooms_corte:
+        return 0, 0, True
 
-    floors, ceilings = _coletar_pisos_forros_no_corte(view)
+    if floors is None or ceilings is None:
+        floors, ceilings = _coletar_pisos_forros_no_corte(view)
+
     org  = view.Origin
     rdir = view.RightDirection
     upv  = view.UpDirection
@@ -1176,30 +1446,28 @@ def run_cotar_pe_direito():
     criadas = 0
     ignoradas = 0
 
-    with Transaction(doc, u"Cotar Pé-Direito no Corte") as t:
-        t.Start()
-        for rc in rooms_corte:
-            ua, ub, umid = rc["u_a"], rc["u_b"], rc["u_mid"]
-            span = ub - ua
-            margem = min(0.35 / 0.3048, 0.18 * span)
+    for rc in rooms_corte:
+        ua, ub, umid = rc["u_a"], rc["u_b"], rc["u_mid"]
+        span = ub - ua
+        margem = min(0.35 / 0.3048, 0.18 * span)
 
-            if op["pd_pos"] == 0:
-                u_pos = umid + min(0.50 / 0.3048, 0.24 * span)
-            elif op["pd_pos"] == 1:
-                u_pos = umid
-            elif op["pd_pos"] == 2:
-                u_pos = ua + margem
-            else:
-                u_pos = ub - margem
-            u_pos = max(ua + 0.12 / 0.3048, min(ub - 0.12 / 0.3048, u_pos))
+        if op["pd_pos"] == 0:
+            u_pos = umid + min(0.50 / 0.3048, 0.24 * span)
+        elif op["pd_pos"] == 1:
+            u_pos = umid
+        elif op["pd_pos"] == 2:
+            u_pos = ua + margem
+        else:
+            u_pos = ub - margem
+        u_pos = max(ua + 0.12 / 0.3048, min(ub - 0.12 / 0.3048, u_pos))
 
-            # Garante que u_pos esteja dentro do Room
-            u_tentativas = [u_pos, umid, ua + 0.30 * span, ub - 0.30 * span]
-            pt_room_xy = None
-            u_ok = u_pos
-            for uc in u_tentativas:
-                px = rc["org"].X + uc * rc["rx"] + rc["t_v"] * rc["vx"]
-                py = rc["org"].Y + uc * rc["ry"] + rc["t_v"] * rc["vy"]
+        u_tentativas = [u_pos, umid, ua + 0.30 * span, ub - 0.30 * span]
+        pt_room_xy = None
+        u_ok = u_pos
+        for uc in u_tentativas:
+            px = rc["org"].X + uc * rc["rx"] + rc["t_v"] * rc["vx"]
+            py = rc["org"].Y + uc * rc["ry"] + rc["t_v"] * rc["vy"]
+            if rc["room"] is not None:
                 try:
                     if rc["room"].IsPointInRoom(XYZ(px, py, rc["z_probe"])):
                         pt_room_xy = XYZ(px, py, rc["z_min"])
@@ -1209,73 +1477,108 @@ def run_cotar_pe_direito():
                     pt_room_xy = XYZ(px, py, rc["z_min"])
                     u_ok = uc
                     break
+            else:
+                pt_room_xy = XYZ(px, py, rc["z_min"])
+                u_ok = uc
+                break
 
-            if pt_room_xy is None:
-                ignoradas += 1
-                continue
+        if pt_room_xy is None:
+            ignoradas += 1
+            continue
 
-            v_bot, rf_bot, _ = _melhor_piso_base_no_ponto(
-                pt_room_xy, floors,
-                rc["z_min"] - 0.50 / 0.3048,
-                rc["z_min"] + 1.20 / 0.3048,
-                priorizar_acab=op["pd_acab"]
+        v_bot, rf_bot, _ = _melhor_piso_base_no_ponto(
+            pt_room_xy, floors,
+            rc["z_min"] - 0.50 / 0.3048,
+            rc["z_min"] + 1.20 / 0.3048,
+            priorizar_acab=op["pd_acab"]
+        )
+        if rf_bot is None and op["pd_lvl"]:
+            v_bot, rf_bot = _nivel_proximo(rc["z_min"])
+
+        if rf_bot is None:
+            ignoradas += 1
+            continue
+
+        z_base = rc["z_min"]
+        v_forro, rf_forro, z_forro = _forro_no_ponto(
+            pt_room_xy, ceilings,
+            z_base + 1.50 / 0.3048,
+            max(rc["z_max"], z_base + 4.50 / 0.3048) + 1.00 / 0.3048
+        )
+        z_busca_laje = (z_forro + 0.03 / 0.3048) if z_forro is not None else (z_base + 1.80 / 0.3048)
+        v_laje, rf_laje, _ = _laje_ou_topo_acima_no_ponto(
+            pt_room_xy, floors,
+            z_busca_laje,
+            z_base + 6.50 / 0.3048
+        )
+
+        # Se nao ha forro nem laje plana acima, busca Telhado / Madeiramento na faixa do vao
+        v_cob, rf_cob = None, None
+        if rf_forro is None and rf_laje is None:
+            cands_cob = _coletar_refs_cobertura_vertical(
+                view, u_ok, max(0.35 * FT, 0.25 * span),
+                v_bot + 1.50 * FT, v_bot + 10.0 * FT,
+                incluir_madeira=True
             )
-            if rf_bot is None and op["pd_lvl"]:
-                v_bot, rf_bot = _nivel_proximo(rc["z_min"])
+            if cands_cob:
+                # Prefere ponto de menor altura compativel (madeiramento / face inferior) dentro do u_ok
+                cands_cob.sort(key=lambda x: x[0])
+                v_cob, rf_cob = cands_cob[0][0], cands_cob[0][1]
 
-            if rf_bot is None:
-                ignoradas += 1
-                continue
+        refs_cadeia = [(v_bot, rf_bot, "Piso")]
+        if op["pd_pf"] and rf_forro is not None:
+            refs_cadeia.append((v_forro, rf_forro, "Forro"))
+        if (op["pd_fl"] or (op["pd_pf"] and rf_forro is None)) and rf_laje is not None:
+            refs_cadeia.append((v_laje, rf_laje, "Laje"))
+        elif rf_forro is None and rf_laje is None and rf_cob is not None:
+            refs_cadeia.append((v_cob, rf_cob, "Cob"))
 
-            z_base = rc["z_min"]
-            v_forro, rf_forro, z_forro = _forro_no_ponto(
-                pt_room_xy, ceilings,
-                z_base + 1.50 / 0.3048,
-                max(rc["z_max"], z_base + 4.50 / 0.3048) + 1.00 / 0.3048
+        if len(refs_cadeia) >= 2:
+            v_lo = min(x[0] for x in refs_cadeia)
+            v_hi = max(x[0] for x in refs_cadeia)
+            line_pd = Line.CreateBound(
+                org + rdir * u_ok + upv * v_lo,
+                org + rdir * u_ok + upv * v_hi
             )
-            z_busca_laje = (z_forro + 0.03 / 0.3048) if z_forro is not None else (z_base + 1.80 / 0.3048)
-            v_laje, rf_laje, _ = _laje_ou_topo_acima_no_ponto(
-                pt_room_xy, floors,
-                z_busca_laje,
-                z_base + 6.50 / 0.3048
-            )
-
-            refs_cadeia = [(v_bot, rf_bot, "Piso")]
-            if op["pd_pf"] and rf_forro is not None:
-                refs_cadeia.append((v_forro, rf_forro, "Forro"))
-            if (op["pd_fl"] or (op["pd_pf"] and rf_forro is None)) and rf_laje is not None:
-                refs_cadeia.append((v_laje, rf_laje, "Laje"))
-
-            if len(refs_cadeia) >= 2:
-                v_lo = min(x[0] for x in refs_cadeia)
-                v_hi = max(x[0] for x in refs_cadeia)
-                line_pd = Line.CreateBound(
-                    org + rdir * u_ok + upv * v_lo,
-                    org + rdir * u_ok + upv * v_hi
-                )
-                d_pd = _criar_dim_segura(view, line_pd, refs_cadeia, dim_type=op["dim_type"], min_gap=20.0 * MM)
-                if d_pd is not None:
-                    criadas += 1
-                else:
-                    ignoradas += 1
+            d_pd = _criar_dim_segura(view, line_pd, refs_cadeia, dim_type=op["dim_type"], min_gap=20.0 * MM)
+            if d_pd is not None:
+                criadas += 1
             else:
                 ignoradas += 1
+        else:
+            ignoradas += 1
 
-            if op["pd_tot"] and rf_laje is not None and len(refs_cadeia) >= 3:
-                refs_tot = [(v_bot, rf_bot, "Piso"), (v_laje, rf_laje, "Laje")]
-                line_tot = Line.CreateBound(
-                    org + rdir * (u_ok + off_tot) + upv * min(v_bot, v_laje),
-                    org + rdir * (u_ok + off_tot) + upv * max(v_bot, v_laje)
-                )
-                if _criar_dim_segura(view, line_tot, refs_tot, dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
-                    criadas += 1
+        if op["pd_tot"] and rf_laje is not None and len(refs_cadeia) >= 3:
+            refs_tot = [(v_bot, rf_bot, "Piso"), (v_laje, rf_laje, "Laje")]
+            line_tot = Line.CreateBound(
+                org + rdir * (u_ok + off_tot) + upv * min(v_bot, v_laje),
+                org + rdir * (u_ok + off_tot) + upv * max(v_bot, v_laje)
+            )
+            if _criar_dim_segura(view, line_tot, refs_tot, dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
+                criadas += 1
 
+    return criadas, ignoradas, (False if not usando_vaos_fallback else False)
+
+
+def run_cotar_pe_direito(abrir_config=True):
+    _verificar_view_section(u"Pé-Direito Automático no Corte")
+    dim_types = _listar_tipos_cota_linear()
+    prefs = _carregar_prefs()
+    op = _resolver_opcoes_pe_direito(prefs, dim_types, bool(abrir_config))
+
+    floors, ceilings = _coletar_pisos_forros_no_corte(view)
+    with Transaction(doc, u"Cotar Pé-Direito no Corte") as t:
+        t.Start()
+        criadas, ignoradas, vazio = _executar_cotas_pe_direito(op, floors=floors, ceilings=ceilings)
         t.Commit()
 
-    msg = u"Pé-Direito no Corte concluído!\n\n✔ Cotas inseridas: {}".format(criadas)
-    if ignoradas:
-        msg += u"\nℹ Ambientes sem forro/laje de fechamento acima: {}".format(ignoradas)
-    forms.alert(msg, title="Pé-Direito Automático no Corte")
+    if vazio:
+        forms.alert("Nenhum Ambiente (Room) ou vão entre paredes cortadas foi encontrado nesta vista.", title="Pé-Direito")
+    elif criadas == 0:
+        msg = u"Nenhuma cota vertical de pé-direito pôde ser criada."
+        if ignoradas:
+            msg += u"\nℹ Ambientes/vãos sem forro, laje ou cobertura acima: {}".format(ignoradas)
+        forms.alert(msg, title="Pé-Direito Automático no Corte")
 
 
 # ==============================================================================
@@ -1621,51 +1924,70 @@ def _esquadria_visivel_na_vista(fi, v_view, bb_uv, crop_uv, oclusores, solidos_c
     return False
 
 
-def run_cotar_esquadrias_corte():
-    _verificar_view_section(u"Cotas de Esquadrias no Corte")
-    dim_types = _listar_tipos_cota_linear()
-    prefs = _carregar_prefs()
-    win = CotarEsquadriasCorteWindow(prefs, dim_types)
-    win.ShowDialog()
-    if not win.confirmado:
-        script.exit()
+def _resolver_opcoes_esquadrias(prefs, dim_types, abrir_config):
+    if abrir_config:
+        win = CotarEsquadriasCorteWindow(prefs, dim_types)
+        win.ShowDialog()
+        if not win.confirmado:
+            script.exit()
+        op = win.resultado
+        _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+        return op
 
-    op = win.resultado
-    _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+    idx_t = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("eq_tipo", 0) or 0)))
+    return {
+        "eq_escopo": max(0, min(1, int(prefs.get("eq_escopo", 0) or 0))),
+        "eq_lado":   max(0, min(2, int(prefs.get("eq_lado", 0) or 0))),
+        "eq_tipo":   idx_t,
+        "eq_jan":    bool(prefs.get("eq_jan", True)),
+        "eq_por":    bool(prefs.get("eq_por", True)),
+        "eq_pei":    bool(prefs.get("eq_pei", True)),
+        "eq_alt":    bool(prefs.get("eq_alt", True)),
+        "eq_sup":    bool(prefs.get("eq_sup", True)),
+        "eq_lar":    bool(prefs.get("eq_lar", False)),
+        "dim_type":  dim_types[idx_t] if dim_types else None,
+    }
 
+
+def _executar_cotas_esquadrias(op, floors=None, ceilings=None, esq_pre=None):
     cats = []
     if op["eq_jan"]:
         cats.append(BuiltInCategory.OST_Windows)
     if op["eq_por"]:
         cats.append(BuiltInCategory.OST_Doors)
 
-    esquadrias = []
-    if op["eq_escopo"] == 1:
+    esquadrias = list(esq_pre) if esq_pre is not None else []
+    usou_selecao = (op.get("eq_escopo", 0) == 1)
+    if esq_pre is None:
+        sel_esq = []
         for eid in uidoc.Selection.GetElementIds():
             el = doc.GetElement(eid)
             if isinstance(el, FamilyInstance) and el.Category is not None:
                 cid = _eid_int(el.Category.Id)
                 if (op["eq_jan"] and cid == int(BuiltInCategory.OST_Windows)) or (op["eq_por"] and cid == int(BuiltInCategory.OST_Doors)):
-                    esquadrias.append(el)
-        if not esquadrias:
+                    sel_esq.append(el)
+        if sel_esq:
+            esquadrias = sel_esq
+            usou_selecao = True
+        elif op["eq_escopo"] == 1:
             try:
                 refs = uidoc.Selection.PickObjects(ObjectType.Element, _EsquadriaFilter(), u"Selecione as Portas/Janelas e clique em Concluir")
                 esquadrias = [doc.GetElement(rf.ElementId) for rf in refs]
             except Exception:
-                script.exit()
-    else:
-        for cat in cats:
-            for fi in FilteredElementCollector(doc, view.Id).OfCategory(cat).WhereElementIsNotElementType().ToElements():
-                if isinstance(fi, FamilyInstance) and getattr(fi, "SuperComponent", None) is None:
-                    esquadrias.append(fi)
+                return 0, 0, True
+        else:
+            for cat in cats:
+                for fi in FilteredElementCollector(doc, view.Id).OfCategory(cat).WhereElementIsNotElementType().ToElements():
+                    if isinstance(fi, FamilyInstance) and getattr(fi, "SuperComponent", None) is None:
+                        esquadrias.append(fi)
 
     if not esquadrias:
-        forms.alert("Nenhuma Porta ou Janela visível foi encontrada neste Corte/Elevação.", title="Cotas de Esquadrias")
-        script.exit()
+        return 0, 0, True
 
-    floors, ceilings = _coletar_pisos_forros_no_corte(view)
+    if floors is None or ceilings is None:
+        floors, ceilings = _coletar_pisos_forros_no_corte(view)
     crop_uv = _crop_uv_em_vista(view)
-    oclusores = _coletar_oclusores_vista(view) if op["eq_escopo"] == 0 else []
+    oclusores = _coletar_oclusores_vista(view) if not usou_selecao else []
     solidos_cache = {}
     org   = view.Origin
     rdir  = view.RightDirection
@@ -1677,176 +1999,184 @@ def run_cotar_esquadrias_corte():
     criadas = 0
     erros   = 0
 
+    for fi in esquadrias:
+        bb_uv = _bb_uv_em_vista(fi, view)
+        if bb_uv is None:
+            continue
+        u_min, u_max, v_min, v_max, bb = bb_uv
+        if crop_uv is not None:
+            if u_max < crop_uv[0] or u_min > crop_uv[1] or v_max < crop_uv[2] or v_min > crop_uv[3]:
+                continue
+        if not usou_selecao and not _esquadria_visivel_na_vista(fi, view, bb_uv, crop_uv, oclusores, solidos_cache):
+            continue
+
+        vb, rfb, vt, rft = _refs_verticais_esquadria(fi, view)
+        if rfb is None and rft is None:
+            erros += 1
+            continue
+
+        pt_mid = 0.5 * (bb.Min + bb.Max)
+        lados_xy = []
+        try:
+            f_ori = fi.FacingOrientation
+            lados_xy.append(pt_mid + f_ori * (0.35 / 0.3048))
+            lados_xy.append(pt_mid - f_ori * (0.35 / 0.3048))
+        except Exception:
+            pass
+        if not lados_xy:
+            vdir_v = view.ViewDirection
+            lados_xy.append(pt_mid + vdir_v * (0.35 / 0.3048))
+            lados_xy.append(pt_mid - vdir_v * (0.35 / 0.3048))
+
+        z_lvl_est = bb.Min.Z
+        try:
+            lv_el = doc.GetElement(fi.LevelId)
+            if lv_el is not None:
+                z_lvl_est = lv_el.Elevation
+        except Exception:
+            pass
+
+        phase_v = None
+        try:
+            p_ph = view.get_Parameter(BuiltInParameter.VIEW_PHASE)
+            if p_ph is not None:
+                phase_v = doc.GetElement(p_ph.AsElementId())
+        except Exception:
+            pass
+
+        z_room_probe = max(z_lvl_est + 0.50 * FT, min(bb.Max.Z - 0.10 * FT, z_lvl_est + 1.20 * FT))
+        vdir_v = view.ViewDirection
+
+        def _avaliar_lado(pxy):
+            vp, rfp, fl_p = _melhor_piso_base_no_ponto(
+                pxy, floors, z_lvl_est - 0.50 / 0.3048, bb.Min.Z + 0.10 / 0.3048, priorizar_acab=True
+            )
+            vcf, rff, _ = _forro_no_ponto(pxy, ceilings, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 3.50 / 0.3048)
+            vcl, rfl, _ = _laje_ou_topo_acima_no_ponto(pxy, floors, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 4.50 / 0.3048)
+
+            tem_room = False
+            try:
+                p_rm = XYZ(pxy.X, pxy.Y, z_room_probe)
+                rm_hit = doc.GetRoomAtPoint(p_rm, phase_v) if phase_v is not None else doc.GetRoomAtPoint(p_rm)
+                tem_room = (rm_hit is not None and getattr(rm_hit, "Area", 0.0) > 1e-3)
+            except Exception:
+                pass
+
+            eh_acab = (fl_p is not None and not de._eh_piso_estrutural(fl_p))
+            voltado_vista = ((pxy.X - pt_mid.X) * vdir_v.X + (pxy.Y - pt_mid.Y) * vdir_v.Y) > 0.0
+            score = (
+                (10.0 if tem_room else 0.0)
+                + (5.0 if rff is not None else 0.0)
+                + (3.0 if eh_acab else (1.0 if rfp is not None else 0.0))
+                + (0.5 if voltado_vista else 0.0)
+            )
+            return (score, vp, rfp, vcf, rff, vcl, rfl)
+
+        avaliados = [_avaliar_lado(pxy) for pxy in lados_xy]
+        avaliados.sort(key=lambda x: x[0], reverse=True)
+
+        v_piso, rf_piso = None, None
+        for _, vp, rfp, _, _, _, _ in avaliados:
+            if rfp is not None:
+                v_piso, rf_piso = vp, rfp
+                break
+        if rf_piso is None:
+            v_piso, rf_piso, _ = _melhor_piso_base_no_ponto(
+                pt_mid, floors, z_lvl_est - 0.50 / 0.3048, bb.Min.Z + 0.10 / 0.3048, priorizar_acab=True
+            )
+        if rf_piso is None:
+            v_piso, rf_piso = _nivel_proximo(z_lvl_est)
+
+        v_sup, rf_sup = None, None
+        for _, _, _, vc_f, rf_f, vc_l, rf_l in avaliados:
+            if rf_f is not None and rf_l is not None:
+                v_sup, rf_sup = (vc_f, rf_f) if vc_f <= vc_l else (vc_l, rf_l)
+                break
+            elif rf_f is not None:
+                v_sup, rf_sup = vc_f, rf_f
+                break
+            elif rf_l is not None:
+                v_sup, rf_sup = vc_l, rf_l
+                break
+        if rf_sup is None:
+            vc_f, rf_f, _ = _forro_no_ponto(pt_mid, ceilings, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 3.50 / 0.3048)
+            vc_l, rf_l, _ = _laje_ou_topo_acima_no_ponto(pt_mid, floors, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 4.50 / 0.3048)
+            if rf_f is not None and rf_l is not None:
+                v_sup, rf_sup = (vc_f, rf_f) if vc_f <= vc_l else (vc_l, rf_l)
+            elif rf_f is not None:
+                v_sup, rf_sup = vc_f, rf_f
+            elif rf_l is not None:
+                v_sup, rf_sup = vc_l, rf_l
+
+        eh_porta = (_eid_int(fi.Category.Id) == int(BuiltInCategory.OST_Doors))
+        refs_v = []
+        if op["eq_pei"] and rf_piso is not None:
+            refs_v.append((v_piso, rf_piso, "Piso"))
+
+        if eh_porta:
+            if ((not op["eq_pei"]) or rf_piso is None) and rfb is not None:
+                refs_v.append((vb, rfb, "PortaBot"))
+            if op["eq_alt"] and rft is not None:
+                refs_v.append((vt, rft, "PortaTop"))
+        else:
+            if (op["eq_alt"] or op["eq_pei"]) and rfb is not None:
+                refs_v.append((vb, rfb, "JanPeit"))
+            if (op["eq_alt"] or op["eq_sup"]) and rft is not None:
+                refs_v.append((vt, rft, "JanTop"))
+
+        if op["eq_sup"] and rf_sup is not None:
+            refs_v.append((v_sup, rf_sup, "Sup"))
+
+        refs_v = _dedup_refs_por_coord(refs_v, min_gap=20.0 * MM)
+        if len(refs_v) >= 2:
+            if op["eq_lado"] == 1:
+                u_dim = u_max + off_u
+            elif op["eq_lado"] == 2:
+                u_dim = u_min - off_u
+            else:
+                u_dim = u_max + off_u
+                if crop_uv is not None and u_dim > crop_uv[1] - 0.15 * FT:
+                    u_dim = u_min - off_u
+
+            line_v = Line.CreateBound(
+                org + rdir * u_dim + upv * refs_v[0][0],
+                org + rdir * u_dim + upv * refs_v[-1][0]
+            )
+            if _criar_dim_segura(view, line_v, refs_v, dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
+                criadas += 1
+            else:
+                erros += 1
+
+        if op["eq_lar"]:
+            ul, rfl, ur, rfr = _refs_horizontais_esquadria(fi, view)
+            if rfl is not None and rfr is not None:
+                v_dim_w = v_max + off_w
+                line_w = Line.CreateBound(
+                    org + rdir * ul + upv * v_dim_w,
+                    org + rdir * ur + upv * v_dim_w
+                )
+                if _criar_dim_segura(view, line_w, [(ul, rfl, "L"), (ur, rfr, "R")], dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
+                    criadas += 1
+
+    return criadas, erros, False
+
+
+def run_cotar_esquadrias_corte(abrir_config=True):
+    _verificar_view_section(u"Cotas de Esquadrias no Corte")
+    dim_types = _listar_tipos_cota_linear()
+    prefs = _carregar_prefs()
+    op = _resolver_opcoes_esquadrias(prefs, dim_types, bool(abrir_config))
+
+    floors, ceilings = _coletar_pisos_forros_no_corte(view)
     with Transaction(doc, u"Cotar Esquadrias no Corte") as t:
         t.Start()
-        for fi in esquadrias:
-            bb_uv = _bb_uv_em_vista(fi, view)
-            if bb_uv is None:
-                continue
-            u_min, u_max, v_min, v_max, bb = bb_uv
-            if crop_uv is not None:
-                if u_max < crop_uv[0] or u_min > crop_uv[1] or v_max < crop_uv[2] or v_min > crop_uv[3]:
-                    continue
-            if op["eq_escopo"] == 0 and not _esquadria_visivel_na_vista(fi, view, bb_uv, crop_uv, oclusores, solidos_cache):
-                continue
-
-            vb, rfb, vt, rft = _refs_verticais_esquadria(fi, view)
-            if rfb is None and rft is None:
-                erros += 1
-                continue
-
-            # Determina pontos XY ao redor da esquadria, priorizando o lado interno (ambiente visivel) antes do eixo da parede
-            pt_mid = 0.5 * (bb.Min + bb.Max)
-            lados_xy = []
-            try:
-                f_ori = fi.FacingOrientation
-                lados_xy.append(pt_mid + f_ori * (0.35 / 0.3048))
-                lados_xy.append(pt_mid - f_ori * (0.35 / 0.3048))
-            except Exception:
-                pass
-            # Fallback adicional ao longo da normal da vista (caso FacingOrientation falhe ou esquadria seja perpendicular)
-            if not lados_xy:
-                vdir_v = view.ViewDirection
-                lados_xy.append(pt_mid + vdir_v * (0.35 / 0.3048))
-                lados_xy.append(pt_mid - vdir_v * (0.35 / 0.3048))
-
-            z_lvl_est = bb.Min.Z
-            try:
-                lv_el = doc.GetElement(fi.LevelId)
-                if lv_el is not None:
-                    z_lvl_est = lv_el.Elevation
-            except Exception:
-                pass
-
-            phase_v = None
-            try:
-                p_ph = view.get_Parameter(BuiltInParameter.VIEW_PHASE)
-                if p_ph is not None:
-                    phase_v = doc.GetElement(p_ph.AsElementId())
-            except Exception:
-                pass
-
-            z_room_probe = max(z_lvl_est + 0.50 * FT, min(bb.Max.Z - 0.10 * FT, z_lvl_est + 1.20 * FT))
-            vdir_v = view.ViewDirection
-
-            def _avaliar_lado(pxy):
-                vp, rfp, fl_p = _melhor_piso_base_no_ponto(
-                    pxy, floors, z_lvl_est - 0.50 / 0.3048, bb.Min.Z + 0.10 / 0.3048, priorizar_acab=True
-                )
-                vcf, rff, _ = _forro_no_ponto(pxy, ceilings, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 3.50 / 0.3048)
-                vcl, rfl, _ = _laje_ou_topo_acima_no_ponto(pxy, floors, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 4.50 / 0.3048)
-
-                tem_room = False
-                try:
-                    p_rm = XYZ(pxy.X, pxy.Y, z_room_probe)
-                    rm_hit = doc.GetRoomAtPoint(p_rm, phase_v) if phase_v is not None else doc.GetRoomAtPoint(p_rm)
-                    tem_room = (rm_hit is not None and getattr(rm_hit, "Area", 0.0) > 1e-3)
-                except Exception:
-                    pass
-
-                eh_acab = (fl_p is not None and not de._eh_piso_estrutural(fl_p))
-                voltado_vista = ((pxy.X - pt_mid.X) * vdir_v.X + (pxy.Y - pt_mid.Y) * vdir_v.Y) > 0.0
-                score = (
-                    (10.0 if tem_room else 0.0)
-                    + (5.0 if rff is not None else 0.0)
-                    + (3.0 if eh_acab else (1.0 if rfp is not None else 0.0))
-                    + (0.5 if voltado_vista else 0.0)
-                )
-                return (score, vp, rfp, vcf, rff, vcl, rfl)
-
-            avaliados = [_avaliar_lado(pxy) for pxy in lados_xy]
-            avaliados.sort(key=lambda x: x[0], reverse=True)
-
-            v_piso, rf_piso = None, None
-            for _, vp, rfp, _, _, _, _ in avaliados:
-                if rfp is not None:
-                    v_piso, rf_piso = vp, rfp
-                    break
-            if rf_piso is None:
-                v_piso, rf_piso, _ = _melhor_piso_base_no_ponto(
-                    pt_mid, floors, z_lvl_est - 0.50 / 0.3048, bb.Min.Z + 0.10 / 0.3048, priorizar_acab=True
-                )
-            if rf_piso is None:
-                v_piso, rf_piso = _nivel_proximo(z_lvl_est)
-
-            v_sup, rf_sup = None, None
-            for _, _, _, vc_f, rf_f, vc_l, rf_l in avaliados:
-                if rf_f is not None and rf_l is not None:
-                    v_sup, rf_sup = (vc_f, rf_f) if vc_f <= vc_l else (vc_l, rf_l)
-                    break
-                elif rf_f is not None:
-                    v_sup, rf_sup = vc_f, rf_f
-                    break
-                elif rf_l is not None:
-                    v_sup, rf_sup = vc_l, rf_l
-                    break
-            if rf_sup is None:
-                vc_f, rf_f, _ = _forro_no_ponto(pt_mid, ceilings, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 3.50 / 0.3048)
-                vc_l, rf_l, _ = _laje_ou_topo_acima_no_ponto(pt_mid, floors, bb.Max.Z + 0.02 / 0.3048, bb.Max.Z + 4.50 / 0.3048)
-                if rf_f is not None and rf_l is not None:
-                    v_sup, rf_sup = (vc_f, rf_f) if vc_f <= vc_l else (vc_l, rf_l)
-                elif rf_f is not None:
-                    v_sup, rf_sup = vc_f, rf_f
-                elif rf_l is not None:
-                    v_sup, rf_sup = vc_l, rf_l
-
-            eh_porta = (_eid_int(fi.Category.Id) == int(BuiltInCategory.OST_Doors))
-            refs_v = []
-            if op["eq_pei"] and rf_piso is not None:
-                refs_v.append((v_piso, rf_piso, "Piso"))
-
-            if eh_porta:
-                if ((not op["eq_pei"]) or rf_piso is None) and rfb is not None:
-                    refs_v.append((vb, rfb, "PortaBot"))
-                if op["eq_alt"] and rft is not None:
-                    refs_v.append((vt, rft, "PortaTop"))
-            else:
-                if (op["eq_alt"] or op["eq_pei"]) and rfb is not None:
-                    refs_v.append((vb, rfb, "JanPeit"))
-                if (op["eq_alt"] or op["eq_sup"]) and rft is not None:
-                    refs_v.append((vt, rft, "JanTop"))
-
-            if op["eq_sup"] and rf_sup is not None:
-                refs_v.append((v_sup, rf_sup, "Sup"))
-
-            refs_v = _dedup_refs_por_coord(refs_v, min_gap=20.0 * MM)
-            if len(refs_v) >= 2:
-                if op["eq_lado"] == 1:
-                    u_dim = u_max + off_u
-                elif op["eq_lado"] == 2:
-                    u_dim = u_min - off_u
-                else:
-                    u_dim = u_max + off_u
-                    if crop_uv is not None and u_dim > crop_uv[1] - 0.15 * FT:
-                        u_dim = u_min - off_u
-
-                line_v = Line.CreateBound(
-                    org + rdir * u_dim + upv * refs_v[0][0],
-                    org + rdir * u_dim + upv * refs_v[-1][0]
-                )
-                if _criar_dim_segura(view, line_v, refs_v, dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
-                    criadas += 1
-                else:
-                    erros += 1
-
-            # Cota horizontal opcional de largura em vista frontal
-            if op["eq_lar"]:
-                ul, rfl, ur, rfr = _refs_horizontais_esquadria(fi, view)
-                if rfl is not None and rfr is not None:
-                    v_dim_w = v_max + off_w
-                    line_w = Line.CreateBound(
-                        org + rdir * ul + upv * v_dim_w,
-                        org + rdir * ur + upv * v_dim_w
-                    )
-                    if _criar_dim_segura(view, line_w, [(ul, rfl, "L"), (ur, rfr, "R")], dim_type=op["dim_type"], min_gap=20.0 * MM) is not None:
-                        criadas += 1
-
+        criadas, erros, vazio = _executar_cotas_esquadrias(op, floors=floors, ceilings=ceilings)
         t.Commit()
 
-    msg = u"Cotas de Esquadrias concluídas!\n\n✔ Cotas criadas: {}".format(criadas)
-    if erros:
-        msg += u"\n⚠ Esquadrias sem faces compatíveis: {}".format(erros)
-    forms.alert(msg, title="Cotas de Esquadrias no Corte")
+    if vazio:
+        forms.alert("Nenhuma Porta ou Janela visível foi encontrada neste Corte/Elevação.", title="Cotas de Esquadrias")
+    elif criadas == 0 and erros:
+        forms.alert(u"Não foi possível gerar cotas para as esquadrias encontradas.", title="Cotas de Esquadrias")
 
 
 # ==============================================================================
@@ -2227,3 +2557,785 @@ def run_inclinacao_telhado():
         forms.alert(u"Inclinações aplicadas em {} água(s) de telhado!".format(criadas), title="Inclinação de Telhado")
     else:
         forms.alert(u"Nenhuma água inclinada de telhado sólido visível neste corte (coberturas planas 0% e vidraças inclinadas são ignoradas).", title="Inclinação de Telhado")
+
+
+# ==============================================================================
+# 5. COTAR CORTE COMPLETO AUTOMATICO (1 CLIQUE — ESTILO PLANTAS)
+# ==============================================================================
+
+XAML_CORTE_AUTO = u"""
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Configurações — Cota Automática no Corte" Width="510" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#F7F8FA">
+    <StackPanel Margin="14">
+        <Border Background="#EBF3FC" BorderBrush="#B8D4F5" BorderThickness="1" CornerRadius="4" Padding="9" Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Foreground="#1F3A57"
+                       Text="Cota todo o Corte na vertical em 1 clique: verticais externas (lajes/forro/cumeeira + altura total), pés-direitos internos e esquadrias."/>
+        </Border>
+
+        <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+            <StackPanel>
+                <TextBlock Text="Cotas verticais a gerar automaticamente:" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <CheckBox x:Name="ck_ca_vert"  Content="Cotas Verticais Externas (pisos/lajes/forro/cumeeira + Altura Total)" IsChecked="True" Margin="0,0,0,5"/>
+                <CheckBox x:Name="ck_ca_pd"    Content="Pé-Direitos Internos (Ambientes / vãos até Forro, Laje ou Madeiramento)" IsChecked="True" Margin="0,0,0,5"/>
+                <CheckBox x:Name="ck_ca_esq"   Content="Cotas de Esquadrias visíveis (Peitoril + Altura + Boneca)" IsChecked="True"/>
+            </StackPanel>
+        </Border>
+
+        <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="195"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="28"/>
+                    <RowDefinition Height="28"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Lado da cota vertical externa:" VerticalAlignment="Center"/>
+                <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_ca_lado" Height="24"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tipo de cota linear:" VerticalAlignment="Center"/>
+                <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cb_ca_tipo" Height="24"/>
+            </Grid>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btn_cancel" Content="Cancelar" Width="95" Height="30" Margin="0,0,8,0"/>
+            <Button x:Name="btn_ok" Content="Salvar e Cotar Corte" Width="170" Height="30"
+                    IsDefault="True" Background="#0078D4" Foreground="White" FontWeight="SemiBold"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
+"""
+
+
+class CotarCorteAutoWindow(forms.WPFWindow):
+    def __init__(self, prefs, dim_types):
+        forms.WPFWindow.__init__(self, XAML_CORTE_AUTO, literal_string=True)
+        self.confirmado = False
+        self.resultado  = {}
+        self._dim_types = dim_types
+
+        self._ck_v    = self.FindName("ck_ca_vert")
+        self._ck_pd   = self.FindName("ck_ca_pd")
+        self._ck_esq  = self.FindName("ck_ca_esq")
+        self._cb_lado = self.FindName("cb_ca_lado")
+        self._cb_tipo = self.FindName("cb_ca_tipo")
+
+        for item in (
+            u"Automático (lado com mais espaço na vista)",
+            u"Sempre à direita",
+            u"Sempre à esquerda",
+        ):
+            self._cb_lado.Items.Add(item)
+        self._cb_lado.SelectedIndex = max(0, min(2, int(prefs.get("ca_lado", 0) or 0)))
+
+        for dt in dim_types:
+            self._cb_tipo.Items.Add(de._elem_name(dt))
+        self._cb_tipo.SelectedIndex = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("ca_tipo", 0) or 0)))
+
+        self._ck_v.IsChecked   = bool(prefs.get("ca_vert", True))
+        self._ck_pd.IsChecked  = bool(prefs.get("ca_pd", True))
+        self._ck_esq.IsChecked = bool(prefs.get("ca_esq", True))
+
+        self.FindName("btn_ok").Click     += self.on_ok
+        self.FindName("btn_cancel").Click += self.on_cancel
+
+    def on_cancel(self, sender, args):
+        self.confirmado = False
+        self.Close()
+
+    def on_ok(self, sender, args):
+        if not (self._ck_v.IsChecked or self._ck_pd.IsChecked or self._ck_esq.IsChecked):
+            forms.alert("Marque ao menos uma opção de cota.", title="Aviso")
+            return
+        idx_t = max(0, self._cb_tipo.SelectedIndex)
+        self.resultado = {
+            "ca_vert":  bool(self._ck_v.IsChecked),
+            "ca_pd":    bool(self._ck_pd.IsChecked),
+            "ca_esq":   bool(self._ck_esq.IsChecked),
+            "ca_lado":  max(0, self._cb_lado.SelectedIndex),
+            "ca_tipo":  idx_t,
+            "dim_type": self._dim_types[idx_t] if self._dim_types else None,
+        }
+        self.confirmado = True
+        self.Close()
+
+
+def _limites_modelo_corte(v_view, crop_uv):
+    """Retorna (u_min, u_max, v_min, v_max, walls_cortadas, cols_cortados) visiveis no corte."""
+    us_lo, us_hi, vs_lo, vs_hi = [], [], [], []
+    walls_c = []
+    cols_c  = []
+
+    for wl in FilteredElementCollector(doc, v_view.Id).OfClass(Wall).WhereElementIsNotElementType().ToElements():
+        if not _parede_corta_plano_secao(wl, v_view):
+            continue
+        bb_uv = _bb_uv_em_vista(wl, v_view)
+        if bb_uv is None:
+            continue
+        u0, u1, v0, v1, _ = bb_uv
+        if crop_uv is not None and (u1 < crop_uv[0] or u0 > crop_uv[1] or v1 < crop_uv[2] or v0 > crop_uv[3]):
+            continue
+        walls_c.append((wl, bb_uv))
+        us_lo.append(u0); us_hi.append(u1); vs_lo.append(v0); vs_hi.append(v1)
+
+    for cat in (BuiltInCategory.OST_StructuralColumns, BuiltInCategory.OST_StructuralFraming):
+        for el in FilteredElementCollector(doc, v_view.Id).OfCategory(cat).WhereElementIsNotElementType().ToElements():
+            bb_uv = _bb_uv_em_vista(el, v_view)
+            if bb_uv is None:
+                continue
+            u0, u1, v0, v1, _ = bb_uv
+            if crop_uv is not None and (u1 < crop_uv[0] or u0 > crop_uv[1] or v1 < crop_uv[2] or v0 > crop_uv[3]):
+                continue
+            if cat == BuiltInCategory.OST_StructuralColumns:
+                cols_c.append((el, bb_uv))
+            us_lo.append(u0); us_hi.append(u1); vs_lo.append(v0); vs_hi.append(v1)
+
+    for cl_t in (Floor, Ceiling, RoofBase):
+        for el in FilteredElementCollector(doc, v_view.Id).OfClass(cl_t).WhereElementIsNotElementType().ToElements():
+            bb_uv = _bb_uv_em_vista(el, v_view)
+            if bb_uv is None:
+                continue
+            u0, u1, v0, v1, _ = bb_uv
+            if crop_uv is not None and (u1 < crop_uv[0] or u0 > crop_uv[1] or v1 < crop_uv[2] or v0 > crop_uv[3]):
+                continue
+            us_lo.append(u0); us_hi.append(u1); vs_lo.append(v0); vs_hi.append(v1)
+
+    if not us_lo:
+        return None
+    return (min(us_lo), max(us_hi), min(vs_lo), max(vs_hi), walls_c, cols_c)
+
+
+def run_cotar_corte_auto(abrir_config=False):
+    _verificar_view_section(u"Cota Automática no Corte")
+    dim_types = _listar_tipos_cota_linear()
+    prefs = _carregar_prefs()
+
+    if abrir_config:
+        win = CotarCorteAutoWindow(prefs, dim_types)
+        win.ShowDialog()
+        if not win.confirmado:
+            script.exit()
+        op = win.resultado
+        _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+    else:
+        idx_t = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("ca_tipo", 0) or 0)))
+        op = {
+            "ca_vert":  bool(prefs.get("ca_vert", True)),
+            "ca_pd":    bool(prefs.get("ca_pd", True)),
+            "ca_esq":   bool(prefs.get("ca_esq", True)),
+            "ca_lado":  max(0, min(2, int(prefs.get("ca_lado", 0) or 0))),
+            "ca_tipo":  idx_t,
+            "dim_type": dim_types[idx_t] if dim_types else None,
+        }
+
+    crop_uv = _crop_uv_em_vista(view)
+    lim = _limites_modelo_corte(view, crop_uv)
+    if lim is None:
+        forms.alert("Nenhum elemento cortado ou visível encontrado neste Corte/Elevação.", title="Cota Automática no Corte")
+        script.exit()
+
+    u_min_m, u_max_m, v_min_m, v_max_m, walls_c, _ = lim
+    floors, ceilings = _coletar_pisos_forros_no_corte(view)
+
+    org   = view.Origin
+    rdir  = view.RightDirection
+    upv   = view.UpDirection
+    esc_v = max(1.0, float(view.Scale or 50))
+    dim_t = op["dim_type"]
+
+    cnt_v = 0
+    cnt_pd = 0
+    cnt_eq = 0
+
+    with Transaction(doc, u"Cota Automática no Corte") as t:
+        t.Start()
+
+        # 1. Cotas Verticais Externas (pisos/lajes/forro/topo parede/telhado + Altura Total)
+        if op["ca_vert"]:
+            usar_dir = True
+            if op["ca_lado"] == 2:
+                usar_dir = False
+            elif op["ca_lado"] == 0 and crop_uv is not None:
+                folga_dir = crop_uv[1] - u_max_m
+                folga_esq = u_min_m - crop_uv[0]
+                usar_dir = (folga_dir >= folga_esq)
+
+            if usar_dir:
+                u_v1 = u_max_m + 6.0 * MM * esc_v
+                u_v2 = u_v1 + 6.0 * MM * esc_v
+                u_probe_ext = u_max_m
+            else:
+                u_v1 = u_min_m - 6.0 * MM * esc_v
+                u_v2 = u_v1 - 6.0 * MM * esc_v
+                u_probe_ext = u_min_m
+
+            refs_v = []
+            # Pisos/Lajes cortados (base e topo) proximos a lateral ou cruzando
+            for fl in floors:
+                for key in ("bot", "top"):
+                    it = fl.get(key)
+                    if it is not None and (v_min_m - 0.5 * FT <= it[0] <= v_max_m + 0.5 * FT):
+                        refs_v.append((it[0], it[2], "Fl"))
+            # Forros
+            for cl in ceilings:
+                it = cl.get("bot")
+                if it is not None and (v_min_m <= it[0] <= v_max_m):
+                    refs_v.append((it[0], it[2], "Ceil"))
+            # Topos das paredes externas/principais cortadas
+            for wl, bb_uv in walls_c:
+                tops_w = [it for it in _faces_normais_direcao(wl, view, upv, min_dot=0.985) if it[1].FaceNormal.Z > 0.9]
+                if tops_w:
+                    vc, _, rf = max(tops_w, key=lambda x: x[0])
+                    refs_v.append((vc, rf, "WTop"))
+            # Beiral e Cumeeira de Telhados solidos
+            roof_ext = _coletar_refs_cobertura_vertical(view, u_probe_ext, max(3.5 * FT, 0.5 * (u_max_m - u_min_m)), v_min_m, v_max_m + 1.0 * FT, incluir_madeira=False)
+            if roof_ext:
+                roof_h = [x for x in roof_ext if x[2].endswith("Face") or x[2].endswith("Edge")]
+                refs_v.extend(roof_h)
+                refs_v.append(min(roof_ext, key=lambda x: x[0]))
+                refs_v.append(max(roof_ext, key=lambda x: x[0]))
+
+            refs_v = _dedup_refs_por_coord(refs_v, min_gap=25.0 * MM)
+            if len(refs_v) >= 2:
+                v0_v, v1_v = refs_v[0][0], refs_v[-1][0]
+                if len(refs_v) > 2:
+                    ln_vc = Line.CreateBound(org + rdir * u_v1 + upv * v0_v, org + rdir * u_v1 + upv * v1_v)
+                    if _criar_dim_segura(view, ln_vc, refs_v, dim_type=dim_t, min_gap=25.0 * MM) is not None:
+                        cnt_v += 1
+                    ln_vt = Line.CreateBound(org + rdir * u_v2 + upv * v0_v, org + rdir * u_v2 + upv * v1_v)
+                    if _criar_dim_segura(view, ln_vt, [refs_v[0], refs_v[-1]], dim_type=dim_t, min_gap=25.0 * MM) is not None:
+                        cnt_v += 1
+                else:
+                    ln_vt = Line.CreateBound(org + rdir * u_v1 + upv * v0_v, org + rdir * u_v1 + upv * v1_v)
+                    if _criar_dim_segura(view, ln_vt, [refs_v[0], refs_v[-1]], dim_type=dim_t, min_gap=25.0 * MM) is not None:
+                        cnt_v += 1
+
+        # 3. Pe-Direitos Internos por Ambiente / Vao
+        if op["ca_pd"]:
+            op_pd = _resolver_opcoes_pe_direito(prefs, dim_types, abrir_config=False)
+            if dim_t is not None:
+                op_pd["dim_type"] = dim_t
+            cnt_pd, _, _ = _executar_cotas_pe_direito(op_pd, floors=floors, ceilings=ceilings, rooms_pre_filtro=None)
+
+        # 4. Cotas de Esquadrias Visiveis
+        if op["ca_esq"]:
+            op_eq = _resolver_opcoes_esquadrias(prefs, dim_types, abrir_config=False)
+            if dim_t is not None:
+                op_eq["dim_type"] = dim_t
+            cnt_eq, _, _ = _executar_cotas_esquadrias(op_eq, floors=floors, ceilings=ceilings, esq_pre=None)
+
+        t.Commit()
+
+    if (cnt_v + cnt_pd + cnt_eq) == 0:
+        forms.alert(u"Nenhuma cota automática pôde ser criada nesta vista.", title="Cota Automática no Corte")
+    else:
+        resumo = u"Corte cotado automaticamente!\n\n"
+        if op["ca_vert"]:
+            resumo += u"✔ Cotas Verticais Externas (Níveis/Total): {}\n".format(cnt_v)
+        if op["ca_pd"]:
+            resumo += u"✔ Cotas de Pé-Direito Interno: {}\n".format(cnt_pd)
+        if op["ca_esq"]:
+            resumo += u"✔ Cotas de Esquadrias: {}".format(cnt_eq)
+        forms.alert(resumo, title="AutoBIM: Cota Automática no Corte")
+
+
+# ==============================================================================
+# 6. COTAR ELEMENTOS SELECIONADOS NO CORTE (ESTILO COTAR PAREDES)
+# ==============================================================================
+
+XAML_SELECAO_CORTE = u"""
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Configurações — Cotar Seleção no Corte" Width="530" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" Background="#F7F8FA">
+    <StackPanel Margin="14">
+        <Border Background="#EBF3FC" BorderBrush="#B8D4F5" BorderThickness="1" CornerRadius="4" Padding="9" Margin="0,0,0,10">
+            <TextBlock TextWrapping="Wrap" FontWeight="SemiBold" Foreground="#1F3A57"
+                       Text="Selecione (ou pré-selecione com caixa) pisos, forros, telhados, vigas ou paredes no corte e leve a cadeia vertical + altura total automaticamente para fora do desenho."/>
+        </Border>
+
+        <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+            <StackPanel>
+                <TextBlock Text="Comportamento da cadeia vertical:" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <CheckBox x:Name="ck_sc_tot"          Content="Adicionar linha paralela de Altura Total externa" IsChecked="True" Margin="0,0,0,5"/>
+                <CheckBox x:Name="ck_sc_mesclar_piso" Content="Agrupar camadas contíguas de Piso acabado + Laje (espessura única)" IsChecked="True" Margin="0,0,0,5"/>
+                <CheckBox x:Name="ck_sc_esq"          Content="Incluir Portas e Janelas selecionadas na caixa de seleção" IsChecked="False"/>
+            </StackPanel>
+        </Border>
+
+        <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="28"/>
+                    <RowDefinition Height="28"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Lado da cota vertical:" VerticalAlignment="Center"/>
+                <ComboBox  Grid.Row="0" Grid.Column="1" x:Name="cb_sc_lado_v" Height="24"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tipo de cota linear:" VerticalAlignment="Center"/>
+                <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="cb_sc_tipo" Height="24"/>
+            </Grid>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btn_cancel" Content="Cancelar" Width="95" Height="30" Margin="0,0,8,0"/>
+            <Button x:Name="btn_ok" Content="Salvar e Selecionar" Width="170" Height="30"
+                    IsDefault="True" Background="#0078D4" Foreground="White" FontWeight="SemiBold"/>
+        </StackPanel>
+    </StackPanel>
+</Window>
+"""
+
+
+class CotarSelecaoCorteWindow(forms.WPFWindow):
+    def __init__(self, prefs, dim_types):
+        forms.WPFWindow.__init__(self, XAML_SELECAO_CORTE, literal_string=True)
+        self.confirmado = False
+        self.resultado  = {}
+        self._dim_types = dim_types
+
+        self._ck_tot = self.FindName("ck_sc_tot")
+        self._ck_mp  = self.FindName("ck_sc_mesclar_piso")
+        self._ck_esq = self.FindName("ck_sc_esq")
+        self._cb_lv  = self.FindName("cb_sc_lado_v")
+        self._cb_tp  = self.FindName("cb_sc_tipo")
+
+        for it in (
+            u"Automático (lado mais próximo da seleção / com mais espaço)",
+            u"Sempre à direita do desenho",
+            u"Sempre à esquerda do desenho",
+        ):
+            self._cb_lv.Items.Add(it)
+        self._cb_lv.SelectedIndex = max(0, min(2, int(prefs.get("sc_lado_v", 0) or 0)))
+
+        for dt in dim_types:
+            self._cb_tp.Items.Add(de._elem_name(dt))
+        self._cb_tp.SelectedIndex = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("sc_tipo", 0) or 0)))
+
+        self._ck_tot.IsChecked = bool(prefs.get("sc_tot", True))
+        self._ck_mp.IsChecked  = bool(prefs.get("sc_mesclar_piso", True))
+        self._ck_esq.IsChecked = bool(prefs.get("sc_esq", False))
+
+        self.FindName("btn_ok").Click     += self.on_ok
+        self.FindName("btn_cancel").Click += self.on_cancel
+
+    def on_cancel(self, sender, args):
+        self.confirmado = False
+        self.Close()
+
+    def on_ok(self, sender, args):
+        idx_t = max(0, self._cb_tp.SelectedIndex)
+        self.resultado = {
+            "sc_tot":          bool(self._ck_tot.IsChecked),
+            "sc_mesclar_piso": bool(self._ck_mp.IsChecked),
+            "sc_esq":          bool(self._ck_esq.IsChecked),
+            "sc_lado_v":       max(0, self._cb_lv.SelectedIndex),
+            "sc_tipo":         idx_t,
+            "dim_type":        self._dim_types[idx_t] if self._dim_types else None,
+        }
+        self.confirmado = True
+        self.Close()
+
+
+_CATS_SELECAO_CORTE_BASE = set([
+    int(BuiltInCategory.OST_Walls),
+    int(BuiltInCategory.OST_Floors),
+    int(BuiltInCategory.OST_Ceilings),
+    int(BuiltInCategory.OST_Roofs),
+    int(BuiltInCategory.OST_StructuralFraming),
+    int(BuiltInCategory.OST_StructuralColumns),
+    int(BuiltInCategory.OST_Columns),
+    int(BuiltInCategory.OST_GenericModel),
+    int(BuiltInCategory.OST_Stairs),
+    int(BuiltInCategory.OST_Ramps),
+    int(BuiltInCategory.OST_Parts),
+    int(BuiltInCategory.OST_CurtainWallMullions),
+    int(BuiltInCategory.OST_CurtainWallPanels),
+])
+
+_CATS_SELECAO_CORTE_ESQ = set([
+    int(BuiltInCategory.OST_Doors),
+    int(BuiltInCategory.OST_Windows),
+])
+
+
+def _eh_elemento_cotavel_corte(el, incluir_esq=False):
+    if el is None:
+        return False
+    cat = getattr(el, "Category", None)
+    if cat is None:
+        return False
+    cid = _eid_int(cat.Id)
+    if cid in _CATS_SELECAO_CORTE_ESQ:
+        if not incluir_esq:
+            return False
+        return isinstance(el, FamilyInstance) and getattr(el, "SuperComponent", None) is None
+    if cid not in _CATS_SELECAO_CORTE_BASE:
+        return False
+    if isinstance(el, RoofBase) and de._eh_vidraca_inclinada(el):
+        return False
+    if cid in (int(BuiltInCategory.OST_StructuralFraming), int(BuiltInCategory.OST_CurtainWallMullions)):
+        try:
+            pc = el.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+            if pc is not None and pc.AsString() and u"ripa" in unicode(pc.AsString()).lower():
+                return False
+        except Exception:
+            pass
+    return True
+
+
+class _SelecaoCorteFilter(ISelectionFilter):
+    def __init__(self, incluir_esq=False):
+        self._incluir_esq = bool(incluir_esq)
+
+    def AllowElement(self, elem):
+        return _eh_elemento_cotavel_corte(elem, incluir_esq=self._incluir_esq)
+
+    def AllowReference(self, reference, position):
+        return False
+
+
+def _mesclar_pisos_selecionados(piso_itens, tol_gap=0.05 / 0.3048, tol_u=0.05 / 0.3048):
+    """Agrupa camadas contiguas de pisos selecionados quando sobrepoem em U e tocam em Z."""
+    if not piso_itens:
+        return []
+    ord_it = sorted(piso_itens, key=lambda x: x[2])
+    clusters = []
+    for u_lo, u_hi, z_lo, rfb, z_hi, rft in ord_it:
+        u0, u1 = min(u_lo, u_hi), max(u_lo, u_hi)
+        fundido = False
+        for cl in clusters:
+            overlap_u = (min(u1, cl[1]) >= max(u0, cl[0]) - tol_u)
+            touch_z   = (z_lo <= cl[4] + tol_gap and z_hi >= cl[2] - tol_gap)
+            if overlap_u and touch_z:
+                cl[0] = min(cl[0], u0)
+                cl[1] = max(cl[1], u1)
+                if rfb is not None and (cl[3] is None or z_lo < cl[2]):
+                    cl[2] = z_lo
+                    cl[3] = rfb
+                elif z_lo < cl[2]:
+                    cl[2] = z_lo
+                if rft is not None and (cl[5] is None or z_hi > cl[4]):
+                    cl[4] = z_hi
+                    cl[5] = rft
+                elif z_hi > cl[4]:
+                    cl[4] = z_hi
+                fundido = True
+                break
+        if not fundido:
+            clusters.append([u0, u1, z_lo, rfb, z_hi, rft])
+
+    res = []
+    for _, _, zb, rfb, zt, rft in clusters:
+        if rfb is not None:
+            res.append((zb, rfb, "LajeBase"))
+        if rft is not None:
+            res.append((zt, rft, "PisoAcabTop"))
+    return res
+
+
+def _coletar_dims_existentes_uv(v_view, rdir, upv, org):
+    """Retorna {'h': [(v_coord, u0, u1), ...], 'v': [(u_coord, v0, v1), ...]} de cotas lineares na vista."""
+    res = {"h": [], "v": []}
+    for dm in FilteredElementCollector(doc, v_view.Id).OfClass(Dimension).WhereElementIsNotElementType().ToElements():
+        try:
+            crv = getattr(dm, "Curve", None)
+            if not isinstance(crv, Line):
+                continue
+            ddir = crv.Direction
+            u_c, v_c = _uv_em_vista(crv.Origin, org, rdir, upv)
+            bb_uv = _bb_uv_em_vista(dm, v_view)
+            if abs(ddir.DotProduct(rdir)) >= 0.98:
+                u0 = bb_uv[0] if bb_uv else (u_c - 5.0 * FT)
+                u1 = bb_uv[1] if bb_uv else (u_c + 5.0 * FT)
+                res["h"].append((v_c, u0, u1))
+            elif abs(ddir.DotProduct(upv)) >= 0.98:
+                v0 = bb_uv[2] if bb_uv else (v_c - 5.0 * FT)
+                v1 = bb_uv[3] if bb_uv else (v_c + 5.0 * FT)
+                res["v"].append((u_c, v0, v1))
+        except Exception:
+            pass
+    return res
+
+
+def run_cotar_selecao_corte(abrir_config=False):
+    _verificar_view_section(u"Cotar Seleção no Corte")
+    dim_types = _listar_tipos_cota_linear()
+    prefs = _carregar_prefs()
+
+    if abrir_config:
+        win = CotarSelecaoCorteWindow(prefs, dim_types)
+        win.ShowDialog()
+        if not win.confirmado:
+            script.exit()
+        op = win.resultado
+        _salvar_prefs(dict((k, v) for k, v in op.items() if k != "dim_type"))
+    else:
+        idx_t = max(0, min(max(0, len(dim_types) - 1), int(prefs.get("sc_tipo", 0) or 0)))
+        op = {
+            "sc_tot":          bool(prefs.get("sc_tot", True)),
+            "sc_mesclar_piso": bool(prefs.get("sc_mesclar_piso", True)),
+            "sc_esq":          bool(prefs.get("sc_esq", False)),
+            "sc_lado_v":       max(0, min(2, int(prefs.get("sc_lado_v", 0) or 0))),
+            "sc_tipo":         idx_t,
+            "dim_type":        dim_types[idx_t] if dim_types else None,
+        }
+
+    # Etapa 1: Pré-seleção ou caixa de seleção (igual ao Cotar Paredes Selecionadas)
+    pre_ids = list(uidoc.Selection.GetElementIds())
+    elementos = []
+    if pre_ids:
+        for eid in pre_ids:
+            el = doc.GetElement(eid)
+            if _eh_elemento_cotavel_corte(el, incluir_esq=True):
+                elementos.append(el)
+
+    if not elementos:
+        try:
+            with forms.WarningBar(title=u"Selecione os elementos no Corte (ex.: caixa de seleção) e clique em Concluir (Finish)"):
+                refs_pick = uidoc.Selection.PickObjects(
+                    ObjectType.Element,
+                    _SelecaoCorteFilter(incluir_esq=op["sc_esq"]),
+                    u"Selecione paredes, pisos, forros, telhados, vigas ou pilares e clique em Finish"
+                )
+            for rf in (refs_pick or []):
+                el = doc.GetElement(rf.ElementId)
+                if el is not None:
+                    elementos.append(el)
+        except Exception:
+            script.exit()
+
+    if not elementos:
+        forms.alert(u"Nenhum elemento válido selecionado no Corte.", title="Cotar Seleção no Corte")
+        script.exit()
+
+    # Remover duplicatas preservando ordem
+    vistos_id = set()
+    uniq_els = []
+    for el in elementos:
+        eid_i = _eid_int(el.Id)
+        if eid_i not in vistos_id:
+            vistos_id.add(eid_i)
+            uniq_els.append(el)
+    elementos = uniq_els
+
+    # Classificar elementos selecionados
+    sel_walls, sel_cols, sel_floors, sel_ceilings = [], [], [], []
+    sel_roofs, sel_framing, sel_esq, sel_other = [], [], [], []
+    us_s0, us_s1, vs_s0, vs_s1 = [], [], [], []
+
+    for el in elementos:
+        bb_uv = _bb_uv_em_vista(el, view)
+        if bb_uv is not None:
+            us_s0.append(bb_uv[0]); us_s1.append(bb_uv[1])
+            vs_s0.append(bb_uv[2]); vs_s1.append(bb_uv[3])
+
+        cid = _eid_int(el.Category.Id) if getattr(el, "Category", None) is not None else -1
+        if isinstance(el, Wall):
+            sel_walls.append(el)
+        elif isinstance(el, Floor):
+            sel_floors.append((el, bb_uv))
+        elif isinstance(el, Ceiling):
+            sel_ceilings.append((el, bb_uv))
+        elif isinstance(el, RoofBase):
+            sel_roofs.append(el)
+        elif cid in _CATS_SELECAO_CORTE_ESQ:
+            sel_esq.append(el)
+        elif cid == int(BuiltInCategory.OST_StructuralFraming):
+            sel_framing.append(el)
+        elif cid in (int(BuiltInCategory.OST_StructuralColumns), int(BuiltInCategory.OST_Columns)):
+            sel_cols.append(el)
+        else:
+            sel_other.append(el)
+
+    if not us_s0:
+        forms.alert(u"Os elementos selecionados não possuem geometria visível nesta vista.", title="Cotar Seleção no Corte")
+        script.exit()
+
+    sel_uv = (min(us_s0), max(us_s1), min(vs_s0), max(vs_s1))
+    crop_uv = _crop_uv_em_vista(view)
+    lim_mod = _limites_modelo_corte(view, crop_uv)
+    if lim_mod is not None:
+        u_env_min = min(sel_uv[0], lim_mod[0])
+        u_env_max = max(sel_uv[1], lim_mod[1])
+        v_env_min = min(sel_uv[2], lim_mod[2])
+        v_env_max = max(sel_uv[3], lim_mod[3])
+    else:
+        u_env_min, u_env_max, v_env_min, v_env_max = sel_uv
+
+    # Prioriza paredes cortadas quando houver mistura com paredes ao fundo (se nenhuma cortada, usa todas)
+    cut_walls = [w for w in sel_walls if _parede_corta_plano_secao(w, view)]
+    walls_uso = cut_walls if cut_walls else sel_walls
+
+    incluir_esq_agora = op["sc_esq"] or (
+        bool(sel_esq) and not (sel_walls or sel_cols or sel_floors or sel_ceilings or sel_roofs or sel_framing or sel_other)
+    )
+
+    org   = view.Origin
+    rdir  = view.RightDirection
+    upv   = view.UpDirection
+    esc_v = max(1.0, float(view.Scale or 50))
+    dim_t = op["dim_type"]
+
+    # --------------------------------------------------------------------------
+    # Extracao de Referencias Verticais (Normal // upv + Telhado inclinado)
+    # --------------------------------------------------------------------------
+    refs_v = []
+    piso_itens = []
+    for fl, bb_uv in sel_floors:
+        faces_h = _faces_normais_direcao(fl, view, upv, min_dot=0.985)
+        if not faces_h:
+            continue
+        tops = [it for it in faces_h if it[1].FaceNormal.Z > 0.9]
+        bots = [it for it in faces_h if it[1].FaceNormal.Z < -0.9]
+        top_it = max(tops, key=lambda x: x[0]) if tops else None
+        bot_it = min(bots, key=lambda x: x[0]) if bots else None
+        u_lo = bb_uv[0] if bb_uv else 0.0
+        u_hi = bb_uv[1] if bb_uv else 0.0
+        z_lo = bot_it[0] if bot_it else top_it[0]
+        z_hi = top_it[0] if top_it else bot_it[0]
+        rfb  = bot_it[2] if bot_it else None
+        rft  = top_it[2] if top_it else None
+        piso_itens.append((u_lo, u_hi, z_lo, rfb, z_hi, rft))
+
+    if op["sc_mesclar_piso"]:
+        refs_v.extend(_mesclar_pisos_selecionados(piso_itens))
+    else:
+        for _, _, z_lo, rfb, z_hi, rft in piso_itens:
+            if rfb is not None:
+                refs_v.append((z_lo, rfb, "FlBot"))
+            if rft is not None:
+                refs_v.append((z_hi, rft, "FlTop"))
+
+    so_forro = bool(sel_ceilings) and not (sel_floors or walls_uso or sel_cols or sel_framing or sel_roofs or sel_other)
+    for cl, _ in sel_ceilings:
+        faces_h = _faces_normais_direcao(cl, view, upv, min_dot=0.985)
+        bots = [it for it in faces_h if it[1].FaceNormal.Z < -0.9]
+        tops = [it for it in faces_h if it[1].FaceNormal.Z > 0.9]
+        bot_it = min(bots, key=lambda x: x[0]) if bots else None
+        top_it = max(tops, key=lambda x: x[0]) if tops else None
+        if bot_it is not None:
+            refs_v.append((bot_it[0], bot_it[2], "CeilBot"))
+        if top_it is not None and (so_forro or bot_it is None or abs(top_it[0] - bot_it[0]) >= 25.0 * MM):
+            refs_v.append((top_it[0], top_it[2], "CeilTop"))
+
+    # Paredes: apenas base e topo extremos de cada parede (ignora peitoris internos de abertura)
+    for wl in walls_uso:
+        faces_h = _faces_normais_direcao(wl, view, upv, min_dot=0.985)
+        bots = [it for it in faces_h if it[1].FaceNormal.Z < -0.9]
+        tops = [it for it in faces_h if it[1].FaceNormal.Z > 0.9]
+        if bots:
+            b_it = min(bots, key=lambda x: x[0])
+            refs_v.append((b_it[0], b_it[2], "WallBot"))
+        if tops:
+            t_it = max(tops, key=lambda x: x[0])
+            refs_v.append((t_it[0], t_it[2], "WallTop"))
+
+    for el in (sel_framing + sel_cols + sel_other):
+        faces_h = _faces_normais_direcao(el, view, upv, min_dot=0.985)
+        if faces_h:
+            faces_h.sort(key=lambda x: x[0])
+            refs_v.append((faces_h[0][0], faces_h[0][2], "ElemBot"))
+            refs_v.append((faces_h[-1][0], faces_h[-1][2], "ElemTop"))
+
+    opts_r = Options()
+    opts_r.ComputeReferences = True
+    opts_r.View = view
+    try:
+        opts_r.DetailLevel = ViewDetailLevel.Fine
+    except Exception:
+        pass
+    for rf_el in sel_roofs:
+        try:
+            rc = _extrair_refs_geom_cobertura_vertical(
+                rf_el.get_Geometry(opts_r), "Roof", org, rdir, upv, u_alvo=None
+            )
+            if rc:
+                rc_h = [x for x in rc if x[2].endswith("Face") or x[2].endswith("Edge")]
+                refs_v.extend(rc_h)
+                refs_v.append(min(rc, key=lambda x: x[0]))
+                refs_v.append(max(rc, key=lambda x: x[0]))
+        except Exception:
+            pass
+
+    if incluir_esq_agora:
+        for fi in sel_esq:
+            vb, rfb, vt, rft = _refs_verticais_esquadria(fi, view)
+            if rfb is not None:
+                refs_v.append((vb, rfb, "EsqBot"))
+            if rft is not None:
+                refs_v.append((vt, rft, "EsqTop"))
+
+    refs_v = _dedup_refs_por_coord(refs_v, min_gap=20.0 * MM)
+
+    if len(refs_v) < 2:
+        forms.alert(
+            u"Não foram encontradas pelo menos 2 faces horizontais válidas nos elementos selecionados para criar a cota vertical.",
+            title="Cotar Seleção no Corte"
+        )
+        script.exit()
+
+    dims_ex = _coletar_dims_existentes_uv(view, rdir, upv, org)
+    gap_ext  = 6.5 * MM * esc_v
+    step_ext = 6.0 * MM * esc_v
+
+    cnt_v = 0
+
+    with Transaction(doc, u"Cotar Seleção no Corte") as t:
+        t.Start()
+
+        # Cadeia Vertical + Altura Total fora do desenho
+        v0_v, v1_v = refs_v[0][0], refs_v[-1][0]
+        usar_dir = True
+        if op["sc_lado_v"] == 2:
+            usar_dir = False
+        elif op["sc_lado_v"] == 0:
+            env_w = max(1e-3, u_env_max - u_env_min)
+            sel_w = sel_uv[1] - sel_uv[0]
+            if sel_w < 0.65 * env_w:
+                sel_mid_u = 0.5 * (sel_uv[0] + sel_uv[1])
+                usar_dir = (abs(u_env_max - sel_mid_u) <= abs(sel_mid_u - u_env_min))
+            elif crop_uv is not None:
+                usar_dir = ((crop_uv[1] - u_env_max) >= (u_env_min - crop_uv[0]))
+
+        dims_v_rel = [uc for uc, va, vb in dims_ex["v"] if min(vb, v1_v) >= max(va, v0_v) - 1.0 * FT]
+        if usar_dir:
+            u_c1 = _proximo_slot_externo(u_env_max + gap_ext, step_ext, dims_v_rel, sentido=1)
+            u_c2 = _proximo_slot_externo(u_c1 + step_ext, step_ext, dims_v_rel, sentido=1)
+        else:
+            u_c1 = _proximo_slot_externo(u_env_min - gap_ext, step_ext, dims_v_rel, sentido=-1)
+            u_c2 = _proximo_slot_externo(u_c1 - step_ext, step_ext, dims_v_rel, sentido=-1)
+
+        if len(refs_v) > 2:
+            ln_vc = Line.CreateBound(org + rdir * u_c1 + upv * v0_v, org + rdir * u_c1 + upv * v1_v)
+            if _criar_dim_segura(view, ln_vc, refs_v, dim_type=dim_t, min_gap=20.0 * MM) is not None:
+                cnt_v += 1
+            if op["sc_tot"]:
+                ln_vt = Line.CreateBound(org + rdir * u_c2 + upv * v0_v, org + rdir * u_c2 + upv * v1_v)
+                if _criar_dim_segura(view, ln_vt, [refs_v[0], refs_v[-1]], dim_type=dim_t, min_gap=20.0 * MM) is not None:
+                    cnt_v += 1
+        else:
+            ln_vt = Line.CreateBound(org + rdir * u_c1 + upv * v0_v, org + rdir * u_c1 + upv * v1_v)
+            if _criar_dim_segura(view, ln_vt, [refs_v[0], refs_v[-1]], dim_type=dim_t, min_gap=20.0 * MM) is not None:
+                cnt_v += 1
+
+        t.Commit()
+
+    if cnt_v == 0:
+        forms.alert(u"Nenhuma cota vertical pôde ser criada para os elementos selecionados.", title="Cotar Seleção no Corte")
+    else:
+        resumo = u"Seleção cotada fora do desenho!\n\n"
+        resumo += u"✔ Elementos considerados: {}\n".format(len(elementos))
+        resumo += u"✔ Linhas de cota verticais criadas: {}".format(cnt_v)
+        forms.alert(resumo, title="AutoBIM: Cotar Seleção no Corte")
+
