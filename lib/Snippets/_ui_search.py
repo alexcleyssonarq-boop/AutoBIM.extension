@@ -184,6 +184,7 @@ class SearchableCombo(object):
         import System
         from System.ComponentModel import DependencyPropertyDescriptor
         from System.Windows import (
+    VirtualizingStackPanel,
             CornerRadius, GridLength, GridUnitType, HorizontalAlignment,
             TextTrimming, Thickness, UIElement, VerticalAlignment, Visibility,
         )

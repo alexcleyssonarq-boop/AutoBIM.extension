@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Inno Setup
         run: |
@@ -40,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Erro ao compilar Inno Setup." }
 
       - name: Create GitHub Release with EXE attached
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: installer/Output/*.exe
           generate_release_notes: true
