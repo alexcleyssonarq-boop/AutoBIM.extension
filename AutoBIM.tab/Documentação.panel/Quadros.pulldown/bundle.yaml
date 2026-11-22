@@ -1,0 +1,5 @@
+title: "Quadros &\nTabelas"
+tooltip: "Geração automática de quadros e tabelas técnicas: Quadro de Acabamentos por Ambiente e Quadro de Áreas de Prefeitura (TO, CA e TP)."
+layout:
+  - QuadroAcabamentos
+  - QuadroAreasPrefeitura

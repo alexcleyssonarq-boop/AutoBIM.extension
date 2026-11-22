@@ -1,10 +1,8 @@
 title: Documentação
 layout:
-  - QuadroAcabamentos
-  - Renumerar
   - TagAutomatica
-  - PeDireitoAuto
-  - VistasAmbiente
-  - CentralizarTags
+  - AmbientesVistas
   - CotasNivelAuto
-  - PranchasAuto
+  - Renumerar
+  - Quadros
+  - Pranchas

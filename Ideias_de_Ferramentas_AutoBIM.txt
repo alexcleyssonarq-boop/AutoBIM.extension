@@ -150,6 +150,18 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (43 comandos):
 [ ] Caimento / Rebaixo Automático em Áreas Molhadas (SlabShape)
     - Aplica rebaixo e inclinação automática no piso até o ponto/ralo clicado
       ou linha do box sem precisar editar subelementos manualmente.
+[ ] Paginação de Revestimento em Paredes
+    - Equivalente à Paginação de Piso para elevações internas: alinha a hachura
+      de revestimento pelo piso, teto, canto esquerdo/direito ou eixo da
+      parede/box.
+[ ] Cortar Revestimento / Gesso em Aberturas e Nichos
+    - Resolve rapidamente recortes de paredes de revestimento sobrepostas
+      quando a esquadria não corta automaticamente as duas paredes.
+[ ] Gerador Paramétrico de Esquadrias (Portas e Janelas Personalizadas)
+    - Evolução do gerador de portas para abranger portas (lisas, almofadadas,
+      coloniais/com grade, pivotantes, correr) e janelas (correr, maxim-ar,
+      basculante, fixa) com dimensões, folhas, perfis e acabamentos
+      configuráveis, gerando e carregando a família .rfa no projeto.
 
 
 2. PAINEL: DOCUMENTAÇÃO (Anotação, Tags e Pranchas)
@@ -196,35 +208,46 @@ FERRAMENTAS JÁ IMPLEMENTADAS NO PLUGIN (43 comandos):
     - Duplica folha copiando carimbo, tabelas, legendas, textos e vistas,
       ou distribui múltiplas vistas em novas pranchas automaticamente.
 
-[ ] Exportar Múltiplas Pranchas em DWG Único + Lote PDF/DWG Padronizado
+[x] Exportar Múltiplas Pranchas em DWG Único + Lote PDF/DWG Padronizado (IMPLEMENTADO)
     - Se houver AutoCAD completo instalado, exporta as pranchas selecionadas
       e une tudo invisivelmente (via accoreconsole.exe) em 1 único DWG com
       abas de Layout individuais e Model deslocado lado a lado (mais fallback
       para DWG único nativo só do ModelSpace ou exportação em lote PDF/DWG).
 
-[ ] Preencher Tabela de Esquadrias Automático (Portas / Janelas)
-    - Preenche em lote ambiente De → Para, sentido de abertura (Esq/Dir)
-      e largura livre para tags e tabelas de esquadrias.
+[x] Alinhar Vistas e Títulos nas Pranchas (Viewports) (IMPLEMENTADO)
+    - Alinha plantas entre folhas diferentes na mesma coordenada exata (ex.:
+      Térreo na A01, Forro na A02 e Paginação na A03 sobrepostas no PDF) e
+      padroniza o tamanho/posição da linha do título da vista.
 
-[ ] Padronizar Caixa de Texto (MAIÚSCULAS / Título ABNT) em Lote
-    - Converte nomes de ambientes (Rooms), vistas e pranchas em 1 clique.
+[x] Carimbo & Revisões em Lote (IMPLEMENTADO)
+    - Janela única para editar campos do carimbo (Cliente, Obra, Data,
+      Responsável, Fase, Folha X de Y) e aplicar ou limpar Revisões em
+      várias pranchas de uma só vez.
+
+[x] Quadro de Áreas de Prefeitura (Taxa de Ocupação / Permeabilidade) (IMPLEMENTADO)
+    - Lê áreas construídas por pavimento e áreas permeáveis em relação ao
+      terreno e calcula automaticamente TO, CA e TP, gerando tabela ou
+      legenda pronta para prancha.
 
 
 3. PAINEL: AUDITORIA E VISUALIZAÇÃO (Qualidade de Vida)
 ---------------------------------------------------------------------------
-[ ] Colorir Elementos por Parâmetro / Tipo (Filtro Visual) + Resetar Cores
+[x] Colorir Elementos por Parâmetro / Tipo (Filtro Visual) + Resetar Cores (IMPLEMENTADO)
     - Colore temporariamente na vista ativa elementos por tipo, espessura,
       nível ou material para conferência visual rápida do modelo.
 
-[ ] Detector de Elementos Duplicados ou Sobrepostos
-    - Varre pisos, paredes ou famílias sobrepostas no mesmo lugar e
-      destaca ou isola na vista para limpeza.
+[x] Section Box 3D Rápido (por Seleção, Ambiente ou Nível) (IMPLEMENTADO)
+    - Recorta a vista 3D instantaneamente ao redor dos elementos selecionados,
+      de um Ambiente (Room) inteiro ou de um Pavimento (Level), com margem
+      configurável e botão de reset em 1 clique.
 
-[ ] Ajustar Elevação Padrão de Pontos Elétricos / Hidráulicos
-    - Padroniza em lote a altura (Elevation from Level) de tomadas
-      baixas/médias/altas, interruptores e pontos hidráulicos selecionados.
+[x] Modo Fantasma / Isolar Inteligente (Ghost Mode) (IMPLEMENTADO)
+    - Escolhe um critério (categoria, tipo, nível ou material) e deixa o
+      restante da vista em transparência / meio-tom, destacando apenas o que
+      deseja conferir, com reset em 1 clique.
 
-[ ] Limpeza e Raio-X do Modelo (Pré-Entrega)
-    - Localiza e lista CADs importados perdidos, ambientes não colocados ou
-      redundantes, vistas fora de prancha e famílias/tipos sem uso.
+[x] Detector Rápido de Conflitos na Vista (Arquitetura × Estrutura / Interiores) (IMPLEMENTADO)
+    - Detecta colisões sólidas comuns (portas/janelas em pilares ou vigas,
+      forro cortando bandeira de janela, pisos/paredes sobrepostos) e destaca
+      em vermelho ou abre recortado no 3D.
 ===========================================================================

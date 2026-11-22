@@ -184,7 +184,6 @@ class SearchableCombo(object):
         import System
         from System.ComponentModel import DependencyPropertyDescriptor
         from System.Windows import (
-    VirtualizingStackPanel,
             CornerRadius, GridLength, GridUnitType, HorizontalAlignment,
             TextTrimming, Thickness, UIElement, VerticalAlignment, Visibility,
         )
@@ -192,6 +191,15 @@ class SearchableCombo(object):
             Border, Button, ColumnDefinition, DockPanel, Grid,
             Orientation, Panel, StackPanel, TextBlock, TextBox,
         )
+        try:
+            from System.Windows.Controls import (
+                ScrollViewer, VirtualizingStackPanel, VirtualizationMode,
+            )
+            VirtualizingStackPanel.SetIsVirtualizing(combo, True)
+            VirtualizingStackPanel.SetVirtualizationMode(combo, VirtualizationMode.Recycling)
+            ScrollViewer.SetIsDeferredScrollingEnabled(combo, True)
+        except Exception:
+            pass
         from System.Windows.Input import Cursors
         from System.Windows.Media import Brushes, Color, Geometry, PenLineCap, SolidColorBrush
         from System.Windows.Shapes import Path

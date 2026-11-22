@@ -1,0 +1,6 @@
+title: "Auditoria & Visualização"
+layout:
+  - ColorirElementos
+  - SectionBox3D
+  - ModoFantasma
+  - DetectorConflitos

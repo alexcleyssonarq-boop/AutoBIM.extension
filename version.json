@@ -1,8 +1,8 @@
 {
-    "version":  "1.0.2",
-    "release_date":  "2026-11-17",
-    "repo_owner":  "alexcleyssonarq-boop",
-    "repo_name":  "AutoBIM.extension",
-    "branch":  "main",
-    "notes":  "Busca em tempo real nos seletores de famílias, tipos, materiais, modelos de vista, carimbos, tags, tabelas e estilos (v1.0.2) + limpeza visual nas descrições e caixas de seleção de Gesso e Rodapés."
+    "version": "1.0.4",
+    "release_date": "2026-11-21",
+    "repo_owner": "alexcleyssonarq-boop",
+    "repo_name": "AutoBIM.extension",
+    "branch": "main",
+    "notes": "Novo painel Auditoria & Visualização (Colorir Elementos, Section Box 3D Rápido, Modo Fantasma e Detector de Conflitos), reorganização do painel Documentação com 4 novos comandos (Alinhar Vistas e Títulos, Carimbo e Revisões em Lote, Exportar Pranchas DWG Único/PDF e Quadro de Áreas de Prefeitura) e correção do seletor de busca (_ui_search)."
 }

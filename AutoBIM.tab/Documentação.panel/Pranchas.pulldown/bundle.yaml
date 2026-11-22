@@ -1,0 +1,7 @@
+title: "Pranchas &\nPlotagem"
+tooltip: "Gestão completa de pranchas: Duplicar/Auto-Montar Pranchas, Alinhar Vistas e Títulos (Viewports), Editar Carimbo e Revisões em Lote, e Exportar em DWG Único ou Lote PDF/DWG."
+layout:
+  - PranchasAuto
+  - AlinharViewports
+  - CarimboRevisoes
+  - ExportarPranchas
