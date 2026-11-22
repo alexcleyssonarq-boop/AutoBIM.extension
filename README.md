@@ -1,11 +1,18 @@
 # AutoBIM — Extensão pyRevit para Autodesk Revit
 
-Conjunto com **43 ferramentas automatizadas** divididas em 4 painéis no Revit (**2022 a 2026**):
+Conjunto com **51 ferramentas automatizadas** divididas em 5 painéis no Revit (**2022 a 2026**):
 
 - **AutoBIM (1)**: Sobre e Atualizações (verificação automática no GitHub e atualização em 1 clique).
 - **Modelagem (23)**: Piso por Ambiente (Sem Tratamento / Soleira / Contínuo), Forros por Ambiente, Soleiras e Peitoris, Paginação de Piso, Altura de Paredes em Lote, Revestimento e Rodapés (perfis paramétricos AutoBIM e famílias lineares do projeto com corte por vazio), Gesso e Molduras (Tabicas, Cortineiros, Sancas e Rodameios), Estrutura de Cobertura (Trama, Vidraça Inclinada, Tesouras, Pontaletes, Estrutura Metálica 3D/Vidraça, Treliças e Lista de Corte/Quantitativo com Tabela Revit + CSV) e Unir Geometria.
 - **Cotas Automáticas (9)**: Cota por Linha, Cotar por Ambiente, Cotar Paredes Selecionadas, Cotar Parede e Aberturas, e menu *Cotas em Corte* (Cota Automática no Corte em 1 clique na vertical, Cotar Seleção no Corte levando alturas para fora do desenho, Cota Rápida no Corte, Pé-Direito por Ambiente/Vão com suporte a telhado/madeiramento e Cotas de Esquadrias).
-- **Documentação (10)**: Quadro de Acabamentos + Legenda Gráfica 1:1, Renumeração por Clique e em Lote, Tag Automática em Lote, Pé-Direito Automático para Tags (`PD = 2,80m` / `PD = 2,60 / 3,40m`), Vistas por Ambiente (2D/3D/Elevações), Centralizar Tags, Cotas de Nível (Planta e Corte) e Pranchas Auto.
+- **Documentação (14)** *(reorganizado em 6 botões com menus suspensos)*:
+  - **Tag Automática** em Lote;
+  - **Ambientes & Vistas**: Centralizar Tags, Pé-Direito Automático para Tags (`PD = 2,80m` / `PD = 2,60 / 3,40m`) e Vistas por Ambiente (2D/3D/Elevações);
+  - **Cotas de Nível**: em Planta e em Corte;
+  - **Renumerar**: Por Clique e em Lote;
+  - **Quadros & Tabelas**: Quadro de Acabamentos (+ Legenda Gráfica 1:1) e **Quadro de Áreas de Prefeitura** (TO, CA, TP e Taxa de Impermeabilidade com Vista de Desenho + CSV Excel BR);
+  - **Pranchas & Plotagem**: Pranchas Auto (Duplicar/Auto-Montagem), **Alinhar Vistas e Títulos (Viewports)**, **Carimbo & Revisões em Lote** e **Exportar Pranchas** (DWG Único via AutoCAD `accoreconsole.exe` + Lote PDF/DWG padronizado).
+- **Auditoria & Visualização (4)**: **Colorir Elementos** por Parâmetro/Tipo (+ legenda e reset), **Section Box 3D Rápido** (por Seleção, Ambiente ou Pavimento), **Modo Fantasma (Ghost Mode)** e **Detector Rápido de Conflitos** na vista ativa (com destaque em vermelho e abertura direta do conflito no 3D).
 
 > Todas as janelas de seleção de famílias, tipos de piso/forro/parede, materiais, modelos de vista, carimbos, pranchas, tags, tabelas e estilos de cota/texto contam com **barra de pesquisa em tempo real** (tolerante a acentos e com múltiplos termos).
 
